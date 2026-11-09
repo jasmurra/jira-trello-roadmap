@@ -1,0 +1,4 @@
+# GitHub source used by start.command and Check for updates.
+# Coworkers do not log into this repo if it is public. HTTPS, no tokens.
+repo=jasmurra/jira-trello-roadmap
+branch=main

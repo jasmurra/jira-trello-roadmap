@@ -1,0 +1,41 @@
+{
+  "jira": {
+    "site": "https://cisco-gde.atlassian.net",
+    "boardId": 5844,
+    "projectKey": "COL",
+    "boardName": "Collab & IOT",
+    "boardUrl": "https://cisco-gde.atlassian.net/jira/software/c/projects/COL/boards/5844?quickFilter=7144",
+    "quickFilterId": 7144,
+    "quickFilterName": "Collab",
+    "roadmapFieldId": "customfield_10210",
+    "roadmapFieldName": "Display on Roadmap",
+    "productTagsFieldId": "customfield_13157",
+    "demoNameFieldId": "customfield_10060"
+  },
+  "trello": {
+    "boardId": "69617ec60b5c6b1ff5e23e1d",
+    "boardShortLink": "F0baTV9g",
+    "boardName": "Roadmap Planning",
+    "boardUrl": "https://trello.com/b/F0baTV9g/roadmap-planning",
+    "organizationId": "69334d96dcfe15da6727c7da",
+    "publicRoadmapUrl": "https://content.ciscodcloud.com/content/cisco-dcloud/us/en/home/roadmap.4.html",
+    "deliveredFieldName": "Delivered",
+    "mentionUsername": "ksniquer",
+    "mentionName": "Karen",
+    "commentTemplate": "@ksniquer New item for the public roadmap — please update when you can.",
+    "deliveredCommentTemplate": "@ksniquer Jira is Done — marked as delivered.",
+    "defaultLabelNames": [
+      "In Jira / Asana",
+      "Prod Arch - Collab",
+      "Pending Roadmap Publish"
+    ],
+    "defaultCustomFields": {
+      "Type": "New Feature",
+      "Demo Type": "Demo Essential",
+      "Roadmap Privacy": "Public",
+      "Product Architecture": "Collab",
+      "Modality": "Demo",
+      "Delivery Type": "Scheduled Demo"
+    }
+  }
+}

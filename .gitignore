@@ -1,0 +1,13 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.session.json
+.user-defaults.json
+.ignored-issues.json
+.browser-profile/
+.playwright-browsers/
+.github-update-cache/
+_har_extract/

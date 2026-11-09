@@ -1,0 +1,22 @@
+Jira → Trello Roadmap
+
+This runs on your Mac in a browser tab. Sign in with your own Jira and Trello
+accounts. There are no shared passwords in this folder.
+
+Install
+1. Unzip this folder anywhere (Downloads is fine).
+2. Double-click start.command.
+3. If macOS blocks it: System Settings → Privacy & Security → Open Anyway.
+4. Click Sign In and complete Jira and Trello (Duo is fine).
+   This Mac keeps that session so you usually do not sign in again.
+5. Pick your Jira board (and filter) and your Trello board, then Compare.
+
+You need Python 3 on the Mac (the python3 command). First launch creates a
+local .venv and may download Chromium for the sign-in window.
+
+Updates
+After this first zip, you do not need another zip.
+• Restart start.command, or
+• Click Check for updates on the page.
+
+Your login, hidden issues, and board choices stay on this computer.

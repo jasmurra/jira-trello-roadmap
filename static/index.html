@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jira → Trello Roadmap</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --row: #152033;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #049fd9;
+      --ok: #3dd68c;
+      --warn: #fbbf24;
+      --err: #f87171;
+      --miss: #fb923c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.2rem; }
+    h2 { font-size: 1rem; margin: 0 0 0.7rem; }
+    .sub { color: var(--muted); margin: 0 0 0.65rem; font-size: 0.92rem; }
+    .board-links { display: flex; flex-wrap: wrap; gap: 0.5rem 0.85rem; margin: 0 0 1rem; }
+    .board-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.22rem 0.7rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      align-items: center;
+    }
+    .grow { flex: 1; min-width: 180px; }
+    label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
+    input, select, textarea {
+      width: 100%;
+      background: #0b1018;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+      font: inherit;
+    }
+    input[type="checkbox"] { width: auto; }
+    textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84rem; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 0.9rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    button.linkish { background: transparent; color: var(--accent); padding: 0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .pill.ok { border-color: rgba(61,214,140,.45); color: var(--ok); }
+    .pill.bad { border-color: rgba(248,113,113,.4); color: var(--err); }
+    .counts { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 0.4rem 0 0.8rem; }
+    .count { background: #0b1018; border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.7rem; min-width: 110px; }
+    .count b { display: block; font-size: 1.15rem; }
+    .count span { color: var(--muted); font-size: 0.75rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.55rem 0.45rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: .03em; }
+    tr.missing { background: rgba(251,146,60,.07); }
+    tr.mismatch { background: rgba(251,191,36,.06); }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.12rem 0.5rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge.missing { background: rgba(251,146,60,.18); color: var(--miss); }
+    .badge.matched { background: rgba(61,214,140,.15); color: var(--ok); }
+    .badge.quarter-mismatch, .badge.name-mismatch, .badge.not-delivered { background: rgba(251,191,36,.16); color: var(--warn); }
+    .badge.ignored { background: rgba(139,156,179,.18); color: var(--muted); }
+    .row-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .hint, .status { color: var(--muted); font-size: 0.82rem; margin-top: 0.45rem; }
+    .status.err { color: var(--err); }
+    .status.ok { color: var(--ok); }
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      display: none;
+      justify-content: flex-end;
+      z-index: 20;
+    }
+    .overlay.show { display: flex; }
+    .drawer {
+      width: min(640px, 100%);
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      padding: 1.1rem 1.2rem 2rem;
+      overflow: auto;
+    }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+    .checks { display: flex; flex-wrap: wrap; gap: 0.45rem 0.8rem; }
+    .checks label { color: var(--text); display: flex; gap: 0.35rem; align-items: center; margin: 0; }
+    .checks input { width: auto; }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+    .mention-wrap { position: relative; }
+    .suggest {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% - 4px);
+      z-index: 30;
+      background: #22272b;
+      border: 1px solid #3d4751;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4);
+      max-height: 260px;
+      overflow: auto;
+      padding: 0.25rem 0;
+    }
+    .suggest.show { display: block; }
+    #commentSuggest.suggest { top: auto; bottom: calc(100% - 2px); }
+    .suggest-item {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.45rem 0.7rem;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      width: 100%;
+      text-align: left;
+      font: inherit;
+    }
+    .suggest-item:hover, .suggest-item.active { background: #2c333a; }
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex: 0 0 28px;
+      background: #5c6bc0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .suggest-name { display: block; font-weight: 600; font-size: 0.88rem; }
+    .suggest-handle { display: block; color: var(--muted); font-size: 0.75rem; }
+    .member-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.45rem; min-height: 0; }
+    .member-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: #0b1018;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+      font-size: 0.8rem;
+    }
+    .member-chip .avatar { width: 22px; height: 22px; flex-basis: 22px; font-size: 0.6rem; }
+    .member-chip button {
+      background: transparent;
+      color: var(--muted);
+      padding: 0 0.25rem;
+      font-size: 0.9rem;
+      line-height: 1;
+    }
+    .toast {
+      position: fixed;
+      right: 1.1rem;
+      bottom: 1.1rem;
+      z-index: 40;
+      display: none;
+      align-items: flex-start;
+      gap: 0.7rem;
+      min-width: 280px;
+      max-width: min(420px, calc(100vw - 2rem));
+      background: #163027;
+      border: 1px solid rgba(61,214,140,.45);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0.8rem 0.85rem;
+      box-shadow: 0 12px 32px rgba(0,0,0,.4);
+      font-size: 0.9rem;
+    }
+    .toast.show { display: flex; }
+    .toast.warn {
+      background: #2a2416;
+      border-color: rgba(251,191,36,.5);
+    }
+    .toast.err {
+      background: #2a1717;
+      border-color: rgba(248,113,113,.5);
+    }
+    .toast-body { flex: 1; min-width: 0; }
+    .toast-body a { font-weight: 600; }
+    .toast-close {
+      background: transparent;
+      color: var(--muted);
+      padding: 0;
+      line-height: 1;
+      font-size: 1.15rem;
+    }
+    @media (max-width: 800px) {
+      .grid2 { grid-template-columns: 1fr; }
+      td, th { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Jira → Trello Roadmap <span class="muted" id="appVersion" style="font-size:.8rem;font-weight:500"></span></h1>
+    <p class="sub">Compare your Jira board with Trello, then create or edit cards. Default view is <b>Display on Roadmap = Yes</b>. You can also compare every Jira item on the board. Jira Done items are checked for the Trello <b>Delivered</b> field.</p>
+    <div class="board-links">
+      <a id="jiraBoardLink" href="https://cisco-gde.atlassian.net/jira/software/c/projects/COL/boards/5844?quickFilter=7144" target="_blank" rel="noopener noreferrer">Jira board</a>
+      <a id="trelloBoardLink" href="https://trello.com/b/F0baTV9g/roadmap-planning" target="_blank" rel="noopener noreferrer">Trello board</a>
+      <a href="https://content.ciscodcloud.com/content/cisco-dcloud/us/en/home/roadmap.4.html" target="_blank" rel="noopener noreferrer">Public roadmap</a>
+    </div>
+
+    <section class="panel">
+      <div class="row">
+        <span id="jiraPill" class="pill">Jira: not signed in</span>
+        <span id="trelloPill" class="pill">Trello: not signed in</span>
+        <span class="grow"></span>
+        <button class="secondary" id="settingsBtn">Settings</button>
+        <button class="secondary" id="updateBtn">Check for updates</button>
+        <button class="secondary" id="loginBtn">Sign In</button>
+        <button class="secondary" id="logoutBtn">Sign out</button>
+      </div>
+      <div id="authStatus" class="status"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <div>
+          <label for="jiraBoard">Jira board</label>
+          <select id="jiraBoard"></select>
+        </div>
+        <div>
+          <label for="projectFilter">Jira filter</label>
+          <select id="projectFilter">
+            <option value="ALL">All on board</option>
+          </select>
+        </div>
+        <div>
+          <label for="trelloBoard">Trello board</label>
+          <select id="trelloBoard"></select>
+        </div>
+        <div>
+          <label for="scopeFilter">Jira items</label>
+          <select id="scopeFilter">
+            <option value="roadmap">Display on Roadmap = Yes</option>
+            <option value="all">All items on this board</option>
+          </select>
+        </div>
+        <div>
+          <label for="gapFilter">Show</label>
+          <select id="gapFilter">
+            <option value="missing">Missing on Trello</option>
+            <option value="not-delivered">Jira Done, not Delivered</option>
+            <option value="all">All in this compare</option>
+            <option value="mismatch">Mismatches</option>
+            <option value="matched">Already on Trello</option>
+            <option value="hidden">Hidden from search</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end">
+          <button id="compareBtn">Compare boards</button>
+        </div>
+      </div>
+      <p class="hint" id="defaultsHint">Board choices are saved on this Mac and used the next time you open the tool.</p>
+      <div id="settingsPanel" class="hidden" style="margin-top:.75rem;padding:.8rem .9rem;border:1px solid var(--border);border-radius:8px;background:#0b1018">
+        <h2 style="margin:0 0 .45rem">Saved defaults</h2>
+        <p class="muted" style="margin:0 0 .65rem">These stay on this computer. Changing the menus above also updates them.</p>
+        <p id="settingsSummary" class="hint" style="margin-top:0"></p>
+        <div class="row">
+          <button id="saveDefaultsBtn">Save current boards as my default</button>
+          <button class="secondary" id="resetDefaultsBtn">Reset to Collab defaults</button>
+        </div>
+        <div id="settingsStatus" class="status"></div>
+      </div>
+      <div id="compareStatus" class="status"></div>
+      <div class="counts hidden" id="counts">
+        <div class="count"><b id="cTotal">0</b><span id="cTotalLabel">On roadmap</span></div>
+        <div class="count"><b id="cMissing">0</b><span>Missing Trello card</span></div>
+        <div class="count"><b id="cNotDelivered">0</b><span>Done, not Delivered</span></div>
+        <div class="count"><b id="cMismatch">0</b><span>Quarter / name drift</span></div>
+        <div class="count"><b id="cMatched">0</b><span>In sync</span></div>
+        <div class="count"><b id="cIgnored">0</b><span>Hidden</span></div>
+      </div>
+      <div style="overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Jira</th>
+              <th>Quarter</th>
+              <th>Due</th>
+              <th>Delivered</th>
+              <th>Trello</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="drawer">
+      <div class="row">
+        <h2 style="margin:0" id="draftTitle">Create Trello card</h2>
+        <span class="grow"></span>
+        <button class="secondary" id="closeDraft">Close</button>
+      </div>
+      <p class="muted" id="draftMeta"></p>
+      <div class="grid2">
+        <div>
+          <label for="draftName">Card name</label>
+          <input id="draftName" />
+        </div>
+        <div>
+          <label for="draftList">Trello list</label>
+          <select id="draftList"></select>
+        </div>
+      </div>
+      <div style="margin-top:.7rem">
+        <label for="draftProducts">Products line</label>
+        <input id="draftProducts" placeholder="Webex, Google Meet" />
+      </div>
+      <div style="margin-top:.7rem">
+        <label for="draftDesc">Description sent to Trello</label>
+        <textarea id="draftDesc"></textarea>
+      </div>
+      <div style="margin-top:.7rem">
+        <label>Labels</label>
+        <div class="checks" id="draftLabels"></div>
+      </div>
+      <div class="grid2" id="draftFields" style="margin-top:.7rem"></div>
+      <div style="margin-top:.7rem">
+        <label>Members</label>
+        <div class="member-chips" id="draftMemberChips"></div>
+        <div class="mention-wrap">
+          <input id="draftMemberSearch" placeholder="Add members by name or @handle" autocomplete="off" />
+          <div class="suggest" id="memberSuggest"></div>
+        </div>
+        <p class="hint">Same Trello people search as the card. Click a result to assign them.</p>
+      </div>
+      <div style="margin-top:.7rem">
+        <label class="checks"><input type="checkbox" id="draftMention" checked /> Post a comment</label>
+        <div class="mention-wrap" style="margin-top:.4rem">
+          <textarea id="draftComment" style="min-height:70px" placeholder="Type @ to mention someone"></textarea>
+          <div class="suggest" id="commentSuggest"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:1rem">
+        <button id="createBtn">Create card</button>
+        <span class="grow"></span>
+      </div>
+      <div id="draftStatus" class="status"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status">
+    <div class="toast-body" id="toastBody"></div>
+    <button type="button" class="toast-close" id="toastClose" aria-label="Dismiss">×</button>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let lastCompare = null;
+    let currentDraft = null;
+    let loginTimer = null;
+    let jiraBoardList = [];
+    let trelloBoardList = [];
+    let savedDefaults = { jira: {}, trello: {}, ui: {} };
+    let selectedMembers = [];
+    let toastTimer = null;
+    let mentionTimer = null;
+    let memberTimer = null;
+    let commentHits = [];
+    let commentActive = 0;
+    let commentToken = null;
+    let memberHits = [];
+    let memberActive = 0;
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    function hideToast() {
+      $("toast").classList.remove("show");
+      clearTimeout(toastTimer);
+    }
+
+    function showToast(html, kind) {
+      $("toast").className = "toast show " + (kind || "ok");
+      $("toastBody").innerHTML = html;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, 6000);
+    }
+
+    function closeDraft() {
+      $("overlay").classList.remove("show");
+    }
+
+    function setStatus(el, text, kind) {
+      el.textContent = text || "";
+      el.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function pill(el, ok, label, name) {
+      el.className = "pill " + (ok ? "ok" : "bad");
+      el.textContent = ok ? `${label}: ${name || "signed in"}` : `${label}: not signed in`;
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+      return data;
+    }
+
+    async function refreshAuth() {
+      const data = await api("/api/auth/status");
+      pill($("jiraPill"), data.jira && data.jira.ok, "Jira", data.jira && data.jira.displayName);
+      pill($("trelloPill"), data.trello && data.trello.ok, "Trello", data.trello && (data.trello.displayName || data.trello.username));
+      if ((data.jira && data.jira.ok) || (data.trello && data.trello.ok)) {
+        loadBoards().catch(() => {});
+      }
+      return data;
+    }
+
+    function fillSelect(sel, items, selected, labelFn, valueFn) {
+      const wanted = selected == null ? sel.value : String(selected);
+      sel.innerHTML = "";
+      for (const item of items) {
+        const opt = document.createElement("option");
+        opt.value = valueFn(item);
+        opt.textContent = labelFn(item);
+        if (String(opt.value) === wanted) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+
+    function settingsSummary() {
+      const jira = savedDefaults.jira || {};
+      const trello = savedDefaults.trello || {};
+      const scope = (savedDefaults.ui || {}).scopeFilter === "all" ? "all Jira items on the board" : "Display on Roadmap = Yes";
+      const filter = jira.quickFilterName || (jira.quickFilterId ? jira.quickFilterId : "All on board");
+      return `Next launch: ${jira.boardName || "Collab & IOT"} · ${filter} · ${trello.boardName || "Roadmap Planning"} · ${scope}.`;
+    }
+
+    function refreshSettingsSummary() {
+      $("settingsSummary").textContent = settingsSummary();
+      const jira = savedDefaults.jira || {};
+      $("defaultsHint").textContent = jira.boardName
+        ? `Saved default: ${jira.boardName}. Board choices stay on this Mac for next time.`
+        : "Board choices are saved on this Mac and used the next time you open the tool.";
+    }
+
+    async function loadSavedDefaults() {
+      savedDefaults = await api("/api/defaults");
+      const ui = savedDefaults.ui || {};
+      if (ui.scopeFilter && [...$("scopeFilter").options].some((opt) => opt.value === ui.scopeFilter)) {
+        $("scopeFilter").value = ui.scopeFilter;
+      }
+      if (ui.gapFilter && [...$("gapFilter").options].some((opt) => opt.value === ui.gapFilter)) {
+        $("gapFilter").value = ui.gapFilter;
+      }
+      const jira = savedDefaults.jira || {};
+      if (jira.boardId) {
+        fillSelect(
+          $("jiraBoard"),
+          [{ id: jira.boardId, name: jira.boardName || String(jira.boardId), projectKey: jira.projectKey || "" }],
+          jira.boardId,
+          (board) => board.projectKey ? `${board.name} (${board.projectKey})` : board.name,
+          (board) => String(board.id)
+        );
+      }
+      if (jira.quickFilterId) {
+        const sel = $("projectFilter");
+        if (![...sel.options].some((opt) => String(opt.value) === String(jira.quickFilterId))) {
+          const opt = document.createElement("option");
+          opt.value = jira.quickFilterId;
+          opt.textContent = jira.quickFilterName || jira.quickFilterId;
+          sel.appendChild(opt);
+        }
+        sel.value = String(jira.quickFilterId);
+      } else {
+        $("projectFilter").value = "ALL";
+      }
+      const trello = savedDefaults.trello || {};
+      if (trello.boardId) {
+        fillSelect(
+          $("trelloBoard"),
+          [{ id: trello.boardId, name: trello.boardName || trello.boardId, url: trello.boardUrl, shortLink: trello.boardShortLink, organizationId: trello.organizationId }],
+          trello.boardId,
+          (board) => board.name,
+          (board) => board.id
+        );
+      }
+      applyBoardLinks();
+      refreshSettingsSummary();
+    }
+
+    async function loadJiraFilters(boardId) {
+      if (!boardId) return;
+      const data = await api("/api/jira/boards/" + encodeURIComponent(boardId) + "/filters");
+      const sel = $("projectFilter");
+      const previous = sel.value;
+      sel.innerHTML = `<option value="ALL">All on board</option>`;
+      for (const item of data.filters || []) {
+        const opt = document.createElement("option");
+        opt.value = item.id;
+        opt.textContent = item.name;
+        sel.appendChild(opt);
+      }
+      const wanted = data.selectedId ? String(data.selectedId) : previous;
+      if (wanted && [...sel.options].some((opt) => opt.value === wanted)) sel.value = wanted;
+    }
+
+    async function loadBoards() {
+      try {
+        const jira = await api("/api/jira/boards");
+        jiraBoardList = jira.boards || [];
+        fillSelect(
+          $("jiraBoard"),
+          jiraBoardList,
+          jira.selectedId,
+          (board) => board.projectKey ? `${board.name} (${board.projectKey})` : board.name,
+          (board) => String(board.id)
+        );
+        if ($("jiraBoard").value) await loadJiraFilters($("jiraBoard").value);
+      } catch (_) {}
+      try {
+        const trello = await api("/api/trello/boards");
+        trelloBoardList = trello.boards || [];
+        fillSelect(
+          $("trelloBoard"),
+          trelloBoardList,
+          trello.selectedId,
+          (board) => board.name,
+          (board) => board.id
+        );
+      } catch (_) {}
+      applyBoardLinks();
+    }
+
+    function selectedJiraBoard() {
+      return jiraBoardList.find((item) => String(item.id) === $("jiraBoard").value)
+        || (savedDefaults.jira && savedDefaults.jira.boardId ? {
+          id: savedDefaults.jira.boardId,
+          name: savedDefaults.jira.boardName,
+          projectKey: savedDefaults.jira.projectKey,
+        } : null);
+    }
+
+    function selectedTrelloBoard() {
+      return trelloBoardList.find((item) => item.id === $("trelloBoard").value)
+        || (savedDefaults.trello && savedDefaults.trello.boardId ? {
+          id: savedDefaults.trello.boardId,
+          name: savedDefaults.trello.boardName,
+          url: savedDefaults.trello.boardUrl,
+          shortLink: savedDefaults.trello.boardShortLink,
+          organizationId: savedDefaults.trello.organizationId,
+        } : null);
+    }
+
+    function jiraBoardUrl(board, filterId) {
+      const id = board && board.id;
+      const key = board && board.projectKey;
+      const qf = filterId && filterId !== "ALL" ? filterId : "";
+      if (key && id) {
+        return `https://cisco-gde.atlassian.net/jira/software/c/projects/${key}/boards/${id}${qf ? `?quickFilter=${qf}` : ""}`;
+      }
+      if (id) {
+        return `https://cisco-gde.atlassian.net/secure/RapidBoard.jspa?rapidView=${id}${qf ? `&quickFilter=${qf}` : ""}`;
+      }
+      return (savedDefaults.jira || {}).boardUrl || $("jiraBoardLink").href;
+    }
+
+    function applyBoardLinks() {
+      const jira = selectedJiraBoard();
+      const trello = selectedTrelloBoard();
+      const filterId = $("projectFilter").value;
+      const jiraUrl = jiraBoardUrl(jira, filterId);
+      $("jiraBoardLink").href = jiraUrl;
+      $("jiraBoardLink").textContent = (jira && jira.name) ? `Jira: ${jira.name}` : "Jira board";
+      if (trello && trello.url) {
+        $("trelloBoardLink").href = trello.url;
+        $("trelloBoardLink").textContent = trello.name ? `Trello: ${trello.name}` : "Trello board";
+      } else if ((savedDefaults.trello || {}).boardUrl) {
+        $("trelloBoardLink").href = savedDefaults.trello.boardUrl;
+        $("trelloBoardLink").textContent = savedDefaults.trello.boardName
+          ? `Trello: ${savedDefaults.trello.boardName}`
+          : "Trello board";
+      }
+    }
+
+    async function saveBoards() {
+      const jira = selectedJiraBoard() || {};
+      const trello = selectedTrelloBoard() || {};
+      const filterId = $("projectFilter").value === "ALL" ? "" : $("projectFilter").value;
+      const filterName = $("projectFilter").selectedOptions[0] ? $("projectFilter").selectedOptions[0].textContent : "";
+      const jiraUrl = jira.id ? jiraBoardUrl(jira, filterId) : ((savedDefaults.jira || {}).boardUrl || "");
+      const overlay = {};
+      if (jira.id) {
+        overlay.jira = {
+          boardId: Number(jira.id) || jira.id,
+          boardName: jira.name || "",
+          projectKey: jira.projectKey || "",
+          boardUrl: jiraUrl,
+          quickFilterId: filterId,
+          quickFilterName: filterId ? filterName : "All",
+        };
+      }
+      if (trello.id) {
+        overlay.trello = {
+          boardId: trello.id,
+          boardShortLink: trello.shortLink || "",
+          boardName: trello.name || "",
+          boardUrl: trello.url || "",
+          organizationId: trello.organizationId || "",
+        };
+      }
+      overlay.ui = {
+        scopeFilter: $("scopeFilter").value,
+        gapFilter: $("gapFilter").value,
+      };
+      if (!overlay.jira && !overlay.trello && !overlay.ui) return;
+      savedDefaults = await api("/api/defaults", { method: "PUT", body: JSON.stringify(overlay) });
+      applyBoardLinks();
+      refreshSettingsSummary();
+    }
+
+    $("jiraBoard").addEventListener("change", async () => {
+      try {
+        await loadJiraFilters($("jiraBoard").value);
+        await saveBoards();
+      } catch (err) {
+        setStatus($("compareStatus"), err.message, "err");
+      }
+    });
+    $("projectFilter").addEventListener("change", () => {
+      saveBoards().catch((err) => setStatus($("compareStatus"), err.message, "err"));
+    });
+    $("trelloBoard").addEventListener("change", () => {
+      saveBoards().catch((err) => setStatus($("compareStatus"), err.message, "err"));
+    });
+    $("scopeFilter").addEventListener("change", () => {
+      saveBoards().catch((err) => setStatus($("compareStatus"), err.message, "err"));
+    });
+    $("gapFilter").addEventListener("change", () => {
+      saveBoards().catch((err) => setStatus($("compareStatus"), err.message, "err"));
+    });
+
+    $("settingsBtn").onclick = () => {
+      $("settingsPanel").classList.toggle("hidden");
+      refreshSettingsSummary();
+    };
+    $("saveDefaultsBtn").onclick = async () => {
+      try {
+        await saveBoards();
+        setStatus($("settingsStatus"), "Saved. Next time you open the tool, these boards will already be selected.", "ok");
+        showToast("Saved your default boards for next time.", "ok");
+      } catch (err) {
+        setStatus($("settingsStatus"), err.message, "err");
+      }
+    };
+    $("resetDefaultsBtn").onclick = async () => {
+      try {
+        savedDefaults = await api("/api/defaults/reset", { method: "POST" });
+        await loadSavedDefaults();
+        await loadBoards();
+        setStatus($("settingsStatus"), "Reset to the bundled Collab board defaults.", "ok");
+      } catch (err) {
+        setStatus($("settingsStatus"), err.message, "err");
+      }
+    };
+
+    $("updateBtn").onclick = async () => {
+      setStatus($("authStatus"), "Checking GitHub…");
+      try {
+        const data = await api("/api/update/check", { method: "POST" });
+        setStatus($("authStatus"), data.message || "", data.updating ? "ok" : "");
+        if (!data.updating) return;
+        let tries = 0;
+        const tick = setInterval(async () => {
+          tries += 1;
+          try {
+            const ver = await api("/api/version");
+            if (data.version && ver.version === data.version) {
+              clearInterval(tick);
+              location.reload();
+              return;
+            }
+          } catch (_) {}
+          if (tries > 24) {
+            clearInterval(tick);
+            location.reload();
+          }
+        }, 1500);
+      } catch (err) {
+        setStatus($("authStatus"), err.message, "err");
+      }
+    };
+
+    async function pollLogin() {
+      const data = await api("/api/auth/login-status");
+      setStatus($("authStatus"), data.message || "Signing in…");
+      if (data.done || !data.running) {
+        clearInterval(loginTimer);
+        loginTimer = null;
+        await refreshAuth();
+        if (data.error) setStatus($("authStatus"), data.message || data.error, "err");
+        else setStatus($("authStatus"), "");
+        $("loginBtn").disabled = false;
+      }
+    }
+
+    $("loginBtn").onclick = async () => {
+      $("loginBtn").disabled = true;
+      setStatus($("authStatus"), "Opening a Chrome window…");
+      try {
+        await api("/api/auth/login", { method: "POST", body: JSON.stringify({ target: "both" }) });
+        if (loginTimer) clearInterval(loginTimer);
+        loginTimer = setInterval(pollLogin, 1500);
+        pollLogin();
+      } catch (err) {
+        $("loginBtn").disabled = false;
+        setStatus($("authStatus"), err.message, "err");
+      }
+    };
+
+    $("logoutBtn").onclick = async () => {
+      await api("/api/auth/logout", { method: "POST" });
+      await refreshAuth();
+      setStatus($("authStatus"), "Signed out of this tool (your Chrome login is unchanged).");
+    };
+
+    function gapLabel(gap) {
+      if (gap === "missing") return "Missing";
+      if (gap === "matched") return "On Trello";
+      if (gap === "quarter-mismatch") return "Wrong quarter";
+      if (gap === "name-mismatch") return "Name differs";
+      if (gap === "not-delivered") return "Not delivered";
+      if (gap === "ignored") return "Hidden";
+      return gap;
+    }
+
+    function visibleRows(items) {
+      const mode = $("gapFilter").value;
+      return items.filter((row) => {
+        if (mode === "hidden") return row.ignored;
+        if (row.ignored) return false;
+        if (mode === "all") return true;
+        if (mode === "missing") return row.gap === "missing";
+        if (mode === "not-delivered") return row.gap === "not-delivered";
+        if (mode === "matched") return row.gap === "matched";
+        if (mode === "mismatch") return row.gap === "quarter-mismatch" || row.gap === "name-mismatch" || row.gap === "not-delivered";
+        return true;
+      });
+    }
+
+    function deliveredCell(row) {
+      if (row.ignored && !row.trello) return "—";
+      if (row.gap === "missing") return row.jiraDone ? "Jira done, no card" : "—";
+      if (row.trelloDelivered || (row.trello && row.trello.delivered)) return "Yes";
+      if (row.jiraDone) return "No";
+      return "—";
+    }
+
+    function renderTable() {
+      const body = $("rows");
+      body.innerHTML = "";
+      if (!lastCompare) return;
+      const rows = visibleRows(lastCompare.items || []);
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="7" class="muted">Nothing in this view.</td></tr>`;
+        return;
+      }
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        tr.className = row.ignored ? "" : (row.gap === "missing" ? "missing" : (row.gap === "matched" ? "" : "mismatch"));
+        const trelloCell = row.trello
+          ? `<a href="${row.trello.url}" target="_blank" rel="noopener noreferrer">${row.trello.name}</a><div class="muted">${row.trello.listName || ""}${row.trello.nameMatch === false ? " · name differs" : ""}</div>`
+          : `<span class="muted">No card with ${row.key}</span>`;
+        const hideBtn = row.ignored
+          ? `<button class="secondary" data-restore="${row.key}">Show again</button>`
+          : `<button class="secondary" data-hide="${row.key}">Hide</button>`;
+        const draftBtn = row.ignored
+          ? ""
+          : (row.gap === "missing"
+            ? `<button data-key="${row.key}">Draft card</button>`
+            : `<button class="secondary" data-key="${row.key}">Edit card</button>`);
+        const reason = row.ignored && row.ignoreReason ? `<div class="muted">${row.ignoreReason}</div>` : "";
+        tr.innerHTML = `
+          <td><span class="badge ${row.ignored ? "ignored" : row.gap}">${row.ignored ? "Hidden" : gapLabel(row.gap)}</span></td>
+          <td><a href="${row.url}" target="_blank" rel="noopener noreferrer">${row.key}</a><div>${row.summary || ""}</div><div class="muted">${row.status || ""} ${row.assignee ? " · " + row.assignee : ""}${lastCompare.roadmapOnly === false ? " · Roadmap: " + (row.roadmap || "No") : ""}</div>${reason}</td>
+          <td>${row.quarter || row.swimlane || "—"}</td>
+          <td>${row.due || "—"}</td>
+          <td>${deliveredCell(row)}</td>
+          <td>${trelloCell}</td>
+          <td><div class="row-actions">${draftBtn}${hideBtn}</div></td>`;
+        body.appendChild(tr);
+      }
+      body.querySelectorAll("button[data-key]").forEach((btn) => {
+        btn.onclick = () => openDraft(btn.getAttribute("data-key"));
+      });
+      body.querySelectorAll("button[data-hide]").forEach((btn) => {
+        btn.onclick = () => hideKey(btn.getAttribute("data-hide"));
+      });
+      body.querySelectorAll("button[data-restore]").forEach((btn) => {
+        btn.onclick = () => restoreKey(btn.getAttribute("data-restore"));
+      });
+    }
+
+    $("gapFilter").onchange = renderTable;
+
+    async function hideKey(key) {
+      const row = (lastCompare.items || []).find((item) => item.key === key) || {};
+      const reason = row.jiraDone || /done/i.test(row.status || "")
+        ? "Already done in Jira"
+        : "Hidden from search";
+      try {
+        await api("/api/ignore", {
+          method: "POST",
+          body: JSON.stringify({ key, summary: row.summary || "", reason }),
+        });
+        await $("compareBtn").onclick();
+      } catch (err) {
+        setStatus($("compareStatus"), err.message, "err");
+      }
+    }
+
+    async function restoreKey(key) {
+      try {
+        await api("/api/ignore/" + encodeURIComponent(key), { method: "DELETE" });
+        await $("compareBtn").onclick();
+      } catch (err) {
+        setStatus($("compareStatus"), err.message, "err");
+      }
+    }
+
+    $("compareBtn").onclick = async () => {
+      setStatus($("compareStatus"), "Loading Jira and Trello…");
+      try {
+        const project = $("projectFilter").value;
+        const roadmapOnly = $("scopeFilter").value !== "all";
+        lastCompare = await api(`/api/compare?project=${encodeURIComponent(project)}&roadmapOnly=${roadmapOnly}`);
+        $("counts").classList.remove("hidden");
+        $("cTotal").textContent = lastCompare.counts.total;
+        $("cTotalLabel").textContent = roadmapOnly ? "On roadmap" : "Jira items";
+        $("cMissing").textContent = lastCompare.counts.missing;
+        $("cNotDelivered").textContent = lastCompare.counts.notDelivered || 0;
+        $("cMismatch").textContent = lastCompare.counts.mismatch;
+        $("cMatched").textContent = lastCompare.counts.matched;
+        $("cIgnored").textContent = lastCompare.counts.ignored || 0;
+        setStatus($("compareStatus"), `${lastCompare.jira.name} ↔ ${lastCompare.trello.name}`, "ok");
+        renderTable();
+      } catch (err) {
+        setStatus($("compareStatus"), err.message, "err");
+      }
+    };
+
+    function fillDraftForm(data) {
+      currentDraft = data;
+      const d = data.draft;
+      const editing = d.mode === "update" && d.cardId;
+      $("draftTitle").textContent = editing ? "Edit Trello card" : "Create Trello card";
+      $("createBtn").textContent = editing ? "Save to Trello" : "Create card";
+      $("draftName").value = d.name || "";
+      $("draftProducts").value = d.products || "";
+      $("draftDesc").value = d.desc || "";
+      $("draftComment").value = d.comment || "";
+      $("draftMention").checked = d.mention !== false && Boolean(d.comment);
+      selectedMembers = [...(d.members || [])];
+      hideSuggest($("memberSuggest"));
+      hideSuggest($("commentSuggest"));
+      renderMemberChips();
+      $("draftMemberSearch").value = "";
+      const trelloLink = d.cardUrl
+        ? ` · <a href="${d.cardUrl}" target="_blank" rel="noreferrer">open in Trello</a>`
+        : "";
+      $("draftMeta").innerHTML = `${d.key} · <a href="${d.jiraUrl}" target="_blank" rel="noreferrer">open in Jira</a>${trelloLink}${editing ? " · loaded from the existing card" : ""}`;
+      const listSel = $("draftList");
+      listSel.innerHTML = "";
+      for (const list of data.trello.lists || []) {
+        const opt = document.createElement("option");
+        opt.value = list.id;
+        opt.textContent = list.name;
+        if (list.id === d.idList) opt.selected = true;
+        listSel.appendChild(opt);
+      }
+      const labels = $("draftLabels");
+      labels.innerHTML = "";
+      for (const lab of data.trello.labels || []) {
+        if (!lab.name) continue;
+        const wrap = document.createElement("label");
+        const checked = (d.idLabels || []).includes(lab.id);
+        wrap.innerHTML = `<input type="checkbox" value="${lab.id}" ${checked ? "checked" : ""}/> ${lab.name}`;
+        labels.appendChild(wrap);
+      }
+      const fields = $("draftFields");
+      fields.innerHTML = "";
+      for (const field of d.customFields || []) {
+        if (!["list", "text", "checkbox"].includes(field.type)) continue;
+        const wrap = document.createElement("div");
+        wrap.dataset.fieldId = field.id;
+        wrap.dataset.fieldType = field.type;
+        wrap.dataset.fieldName = field.name;
+        const label = document.createElement("label");
+        label.textContent = field.name;
+        wrap.appendChild(label);
+        if (field.type === "list") {
+          const sel = document.createElement("select");
+          const blank = document.createElement("option");
+          blank.value = "";
+          blank.textContent = "(leave empty)";
+          sel.appendChild(blank);
+          for (const opt of field.options || []) {
+            const o = document.createElement("option");
+            o.value = opt.id;
+            o.textContent = opt.text;
+            if (opt.id === field.idValue) o.selected = true;
+            sel.appendChild(o);
+          }
+          wrap.appendChild(sel);
+        } else if (field.type === "checkbox") {
+          const inp = document.createElement("input");
+          inp.type = "checkbox";
+          inp.checked = Boolean(field.checked) || field.value === "true";
+          wrap.appendChild(inp);
+        } else {
+          const inp = document.createElement("input");
+          inp.value = field.value || "";
+          wrap.appendChild(inp);
+        }
+        fields.appendChild(wrap);
+      }
+    }
+
+    function boardMembers() {
+      return (currentDraft && currentDraft.trello && currentDraft.trello.members) || [];
+    }
+
+    function memberMatches(query) {
+      const q = (query || "").trim().toLowerCase();
+      if (!q) return boardMembers().slice(0, 12);
+      return boardMembers().filter((m) => {
+        const blob = `${m.fullName || ""} ${m.username || ""} ${m.initials || ""}`.toLowerCase();
+        return blob.includes(q);
+      });
+    }
+
+    function mergeMembers(local, remote) {
+      const out = [];
+      const seen = new Set();
+      for (const item of [...(remote || []), ...(local || [])]) {
+        const id = item && item.id;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(item);
+      }
+      return out;
+    }
+
+    function avatarHtml(member) {
+      const name = member.fullName || member.username || "?";
+      const initials = (member.initials || name).slice(0, 2).toUpperCase();
+      if (member.avatarUrl) {
+        return `<img class="avatar" src="${member.avatarUrl}" alt="" />`;
+      }
+      return `<span class="avatar">${initials}</span>`;
+    }
+
+    function hideSuggest(el) {
+      el.classList.remove("show");
+      el.innerHTML = "";
+    }
+
+    function renderSuggest(el, items, active, onPick) {
+      if (!items.length) {
+        hideSuggest(el);
+        return;
+      }
+      el.innerHTML = "";
+      items.forEach((item, idx) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "suggest-item" + (idx === active ? " active" : "");
+        btn.innerHTML = `${avatarHtml(item)}<span><span class="suggest-name">${item.fullName || item.username}</span><span class="suggest-handle">@${item.username || ""}</span></span>`;
+        btn.onmousedown = (ev) => {
+          ev.preventDefault();
+          onPick(item);
+        };
+        el.appendChild(btn);
+      });
+      el.classList.add("show");
+    }
+
+    function renderMemberChips() {
+      const wrap = $("draftMemberChips");
+      wrap.innerHTML = "";
+      for (const member of selectedMembers) {
+        const chip = document.createElement("span");
+        chip.className = "member-chip";
+        chip.innerHTML = `${avatarHtml(member)}<span>${member.fullName || member.username}</span>`;
+        const x = document.createElement("button");
+        x.type = "button";
+        x.textContent = "×";
+        x.onclick = () => {
+          selectedMembers = selectedMembers.filter((item) => item.id !== member.id);
+          renderMemberChips();
+        };
+        chip.appendChild(x);
+        wrap.appendChild(chip);
+      }
+    }
+
+    function addMember(member) {
+      if (!member || !member.id) return;
+      if (selectedMembers.some((item) => item.id === member.id)) return;
+      selectedMembers.push(member);
+      renderMemberChips();
+      $("draftMemberSearch").value = "";
+      hideSuggest($("memberSuggest"));
+    }
+
+    async function searchPeople(query) {
+      const local = memberMatches(query);
+      const q = (query || "").trim();
+      if (q.length < 2) return local.slice(0, 12);
+      try {
+        const data = await api(`/api/trello/mentions?q=${encodeURIComponent(q)}`);
+        return mergeMembers(local, data.mentions || []).slice(0, 12);
+      } catch (err) {
+        return local.slice(0, 12);
+      }
+    }
+
+    function atToken(textarea) {
+      const pos = textarea.selectionStart;
+      const before = textarea.value.slice(0, pos);
+      const match = before.match(/(^|[\s])@([A-Za-z0-9._-]*)$/);
+      if (!match) return null;
+      const query = match[2];
+      return { start: pos - query.length - 1, query, pos };
+    }
+
+    function insertMention(member) {
+      const ta = $("draftComment");
+      const token = commentToken || atToken(ta);
+      if (!token) return;
+      const handle = "@" + (member.username || "") + " ";
+      ta.value = ta.value.slice(0, token.start) + handle + ta.value.slice(token.pos);
+      const caret = token.start + handle.length;
+      ta.setSelectionRange(caret, caret);
+      ta.focus();
+      commentToken = null;
+      hideSuggest($("commentSuggest"));
+    }
+
+    function unusedMembers(items) {
+      return (items || []).filter((item) => !selectedMembers.some((sel) => sel.id === item.id));
+    }
+
+    $("draftMemberSearch").addEventListener("input", () => {
+      const q = $("draftMemberSearch").value;
+      memberHits = unusedMembers(memberMatches(q));
+      memberActive = 0;
+      renderSuggest($("memberSuggest"), memberHits, memberActive, addMember);
+      clearTimeout(memberTimer);
+      memberTimer = setTimeout(async () => {
+        memberHits = unusedMembers(await searchPeople(q));
+        memberActive = 0;
+        renderSuggest($("memberSuggest"), memberHits, memberActive, addMember);
+      }, 180);
+    });
+
+    $("draftMemberSearch").addEventListener("keydown", (ev) => {
+      if (!$("memberSuggest").classList.contains("show")) return;
+      if (ev.key === "ArrowDown") {
+        ev.preventDefault();
+        memberActive = (memberActive + 1) % Math.max(memberHits.length, 1);
+        renderSuggest($("memberSuggest"), memberHits, memberActive, addMember);
+      } else if (ev.key === "ArrowUp") {
+        ev.preventDefault();
+        memberActive = (memberActive - 1 + memberHits.length) % Math.max(memberHits.length, 1);
+        renderSuggest($("memberSuggest"), memberHits, memberActive, addMember);
+      } else if (ev.key === "Enter") {
+        if (memberHits[memberActive]) {
+          ev.preventDefault();
+          addMember(memberHits[memberActive]);
+        }
+      } else if (ev.key === "Escape") {
+        hideSuggest($("memberSuggest"));
+      }
+    });
+
+    $("draftMemberSearch").addEventListener("focus", async () => {
+      const q = $("draftMemberSearch").value;
+      memberHits = (await searchPeople(q)).filter((item) => !selectedMembers.some((sel) => sel.id === item.id));
+      memberActive = 0;
+      renderSuggest($("memberSuggest"), memberHits, memberActive, addMember);
+    });
+
+    $("draftMemberSearch").addEventListener("blur", () => {
+      setTimeout(() => hideSuggest($("memberSuggest")), 180);
+    });
+
+    $("draftComment").addEventListener("input", () => {
+      const token = atToken($("draftComment"));
+      commentToken = token;
+      if (!token) {
+        hideSuggest($("commentSuggest"));
+        return;
+      }
+      commentHits = memberMatches(token.query);
+      commentActive = 0;
+      renderSuggest($("commentSuggest"), commentHits, commentActive, insertMention);
+      clearTimeout(mentionTimer);
+      mentionTimer = setTimeout(async () => {
+        if (!commentToken || commentToken.query !== token.query) return;
+        commentHits = await searchPeople(token.query);
+        commentActive = 0;
+        renderSuggest($("commentSuggest"), commentHits, commentActive, insertMention);
+      }, 180);
+    });
+
+    $("draftComment").addEventListener("keydown", (ev) => {
+      if (!$("commentSuggest").classList.contains("show")) return;
+      if (ev.key === "ArrowDown") {
+        ev.preventDefault();
+        commentActive = (commentActive + 1) % Math.max(commentHits.length, 1);
+        renderSuggest($("commentSuggest"), commentHits, commentActive, insertMention);
+      } else if (ev.key === "ArrowUp") {
+        ev.preventDefault();
+        commentActive = (commentActive - 1 + commentHits.length) % Math.max(commentHits.length, 1);
+        renderSuggest($("commentSuggest"), commentHits, commentActive, insertMention);
+      } else if (ev.key === "Enter" || ev.key === "Tab") {
+        if (commentHits[commentActive]) {
+          ev.preventDefault();
+          insertMention(commentHits[commentActive]);
+        }
+      } else if (ev.key === "Escape") {
+        hideSuggest($("commentSuggest"));
+      }
+    });
+
+    $("draftComment").addEventListener("blur", () => {
+      setTimeout(() => hideSuggest($("commentSuggest")), 180);
+    });
+
+    $("draftProducts").addEventListener("input", () => {
+      if (!currentDraft) return;
+      const desc = $("draftDesc").value;
+      const products = $("draftProducts").value.trim();
+      const replaced = desc.replace(/Products:\n.*?(?=\n\n|\n\[|$)/s, products ? `Products:\n${products}` : "");
+      if (replaced !== desc) $("draftDesc").value = replaced;
+      else if (products && !/Products:/i.test(desc)) {
+        const urlLine = desc.match(/\n\[https:\/\/cisco-gde[^\n]+/);
+        if (urlLine) {
+          $("draftDesc").value = desc.replace(urlLine[0], `\n\nProducts:\n${products}\n${urlLine[0]}`);
+        }
+      }
+    });
+
+    async function openDraft(key) {
+      setStatus($("draftStatus"), "Building draft from Jira…");
+      $("overlay").classList.add("show");
+      try {
+        const data = await api("/api/draft", {
+          method: "POST",
+          body: JSON.stringify({ key, projectFilter: $("projectFilter").value }),
+        });
+        fillDraftForm(data);
+        const editing = data.draft && data.draft.mode === "update";
+        setStatus(
+          $("draftStatus"),
+          editing
+            ? "Loaded from Trello. Tick Delivered, tweak fields, and optionally comment @ksniquer, then save."
+            : "Tweak anything, then create. Labels and custom fields start from your usual Collab defaults."
+        );
+      } catch (err) {
+        setStatus($("draftStatus"), err.message, "err");
+      }
+    }
+
+    $("closeDraft").onclick = closeDraft;
+    $("toastClose").onclick = hideToast;
+    $("overlay").addEventListener("click", (ev) => {
+      if (ev.target === $("overlay")) closeDraft();
+    });
+
+    $("createBtn").onclick = async () => {
+      if (!currentDraft) return;
+      const idLabels = [...$("draftLabels").querySelectorAll("input:checked")].map((el) => el.value);
+      const customFields = [...$("draftFields").children].map((wrap) => {
+        const type = wrap.dataset.fieldType;
+        const control = wrap.querySelector("select, input");
+        return {
+          id: wrap.dataset.fieldId,
+          name: wrap.dataset.fieldName,
+          type,
+          idValue: type === "list" ? control.value : "",
+          value: type === "checkbox" ? (control.checked ? "true" : "false") : (type === "list" ? "" : control.value),
+        };
+      });
+      const comment = $("draftMention").checked ? $("draftComment").value : "";
+      const editing = currentDraft.draft.mode === "update" && currentDraft.draft.cardId;
+      $("createBtn").disabled = true;
+      setStatus($("draftStatus"), editing ? "Saving Trello card…" : "Creating Trello card…");
+      try {
+        const result = await api(editing ? "/api/cards/update" : "/api/cards/create", {
+          method: "POST",
+          body: JSON.stringify({
+            key: currentDraft.draft.key,
+            cardId: currentDraft.draft.cardId || undefined,
+            name: $("draftName").value,
+            desc: $("draftDesc").value,
+            idList: $("draftList").value,
+            idLabels,
+            idMembers: selectedMembers.map((m) => m.id),
+            comment,
+            customFields,
+          }),
+        });
+        const warn = (result.card.warnings || []).length
+          ? `<div class="muted" style="margin-top:.25rem">${escapeHtml(result.card.warnings.join("; "))}</div>`
+          : "";
+        closeDraft();
+        const verb = editing ? "Updated" : "Created";
+        showToast(
+          `${verb} <a href="${escapeHtml(result.card.url)}" target="_blank" rel="noreferrer">${escapeHtml(result.card.name)}</a>.${warn}`,
+          warn ? "warn" : "ok"
+        );
+        await $("compareBtn").onclick();
+      } catch (err) {
+        setStatus($("draftStatus"), err.message, "err");
+      } finally {
+        $("createBtn").disabled = false;
+      }
+    };
+
+    loadSavedDefaults()
+      .then(() => refreshAuth())
+      .catch((err) => setStatus($("authStatus"), err.message, "err"));
+  </script>
+</body>
+</html>
