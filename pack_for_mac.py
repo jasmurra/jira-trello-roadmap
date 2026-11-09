@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 ZIP_NAME = "Jira-Trello-Roadmap.zip"
-FOLDER = "Jira Trello Roadmap"
+FOLDER = "Jira Trello Roadmap Sync"
 
 FILES = (
     "START HERE.txt",

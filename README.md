@@ -1,4 +1,4 @@
-# Jira → Trello Roadmap
+# Jira → Trello Roadmap Sync
 
 Local Mac app that compares a Jira board to a Trello roadmap board, then lets you create or edit Trello cards. Each person signs in with **their own** Jira and Trello accounts.
 

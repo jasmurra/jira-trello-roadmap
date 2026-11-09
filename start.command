@@ -34,7 +34,7 @@ if lsof -ti :"$PORT" >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "Starting Jira → Trello Roadmap..."
+echo "Starting Jira → Trello Roadmap Sync..."
 open "http://127.0.0.1:$PORT"
 .venv/bin/python app.py
 

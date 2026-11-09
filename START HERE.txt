@@ -1,4 +1,4 @@
-Jira → Trello Roadmap
+Jira → Trello Roadmap Sync
 
 This runs on your Mac in a browser tab. Sign in with your own Jira and Trello
 accounts. There are no shared passwords in this folder.

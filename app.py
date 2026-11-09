@@ -1,4 +1,4 @@
-"""Local Jira → Trello public-roadmap helper."""
+"""Local Jira → Trello Roadmap Sync helper."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from config import (
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
-app = FastAPI(title="Jira → Trello Roadmap", version="1.1.0")
+app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.2")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
