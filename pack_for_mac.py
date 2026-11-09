@@ -27,6 +27,8 @@ FILES = (
     "mapping.py",
     "card_defaults.json",
     "static/index.html",
+    "static/favicon.svg",
+    "static/favicon.png",
 )
 
 BLOCKED_NAMES = {
