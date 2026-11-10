@@ -9,6 +9,8 @@
     "quickFilterName": "Collab",
     "roadmapFieldId": "customfield_10210",
     "roadmapFieldName": "Display on Roadmap",
+    "architectureFieldId": "customfield_10074",
+    "architectureFieldName": "Architecture",
     "productTagsFieldId": "customfield_13157",
     "demoNameFieldId": "customfield_10060"
   },
@@ -26,14 +28,12 @@
     "deliveredCommentTemplate": "@ksniquer Jira is Done — marked as delivered.",
     "defaultLabelNames": [
       "In Jira / Asana",
-      "Prod Arch - Collab",
       "Pending Roadmap Publish"
     ],
     "defaultCustomFields": {
       "Type": "New Feature",
       "Demo Type": "Demo Essential",
       "Roadmap Privacy": "Public",
-      "Product Architecture": "Collab",
       "Modality": "Demo",
       "Delivery Type": "Scheduled Demo"
     }

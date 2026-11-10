@@ -6,30 +6,28 @@ import html
 import re
 from typing import Any
 
-import requests
-
-from auth import requests_session
+from auth import http
 from config import jira_site, load_defaults
+
+
+def _raise_jira(resp: Any, path: str) -> Any:
+    if resp.status_code in (401, 403):
+        raise RuntimeError("Jira session expired. Sign in again.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira HTTP {resp.status_code}: {resp.text[:300]}")
+    return resp.json()
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     site = jira_site()
-    resp = requests_session("jira").get(f"{site}{path}", params=params, timeout=45)
-    if resp.status_code in (401, 403):
-        raise RuntimeError("Jira session expired. Sign in again.")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Jira HTTP {resp.status_code}: {resp.text[:300]}")
-    return resp.json()
+    resp = http("jira", "GET", f"{site}{path}", params=params, timeout=45)
+    return _raise_jira(resp, path)
 
 
 def _post(path: str, payload: dict[str, Any]) -> Any:
     site = jira_site()
-    resp = requests_session("jira").post(f"{site}{path}", json=payload, timeout=60)
-    if resp.status_code in (401, 403):
-        raise RuntimeError("Jira session expired. Sign in again.")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Jira HTTP {resp.status_code}: {resp.text[:300]}")
-    return resp.json()
+    resp = http("jira", "POST", f"{site}{path}", json=payload, timeout=60)
+    return _raise_jira(resp, path)
 
 
 _roadmap_field_id: str | None = None
@@ -296,6 +294,7 @@ def fetch_board(project_filter: str = "COL") -> dict[str, Any]:
 def fetch_issue(key: str) -> dict[str, Any]:
     defaults = load_defaults()["jira"]
     roadmap_field = resolve_roadmap_field_id()
+    architecture_field = str(defaults.get("architectureFieldId") or "customfield_10074")
     fields = ",".join(
         [
             "summary",
@@ -306,6 +305,7 @@ def fetch_issue(key: str) -> dict[str, Any]:
             "labels",
             "issuetype",
             roadmap_field,
+            architecture_field,
             defaults.get("productTagsFieldId") or "customfield_13157",
             defaults.get("demoNameFieldId") or "customfield_10060",
         ]
@@ -325,6 +325,7 @@ def fetch_issue(key: str) -> dict[str, Any]:
     else:
         products = str(product_tags or "")
     roadmap_value = _parse_roadmap_value(fields_data.get(roadmap_field))
+    architecture = _parse_roadmap_value(fields_data.get(architecture_field))
     assignee = fields_data.get("assignee") or {}
     status = fields_data.get("status") or {}
     return {
@@ -337,6 +338,7 @@ def fetch_issue(key: str) -> dict[str, Any]:
         "labels": fields_data.get("labels") or [],
         "products": products,
         "roadmap": roadmap_value,
+        "architecture": architecture,
         "demoName": fields_data.get(defaults.get("demoNameFieldId") or "customfield_10060") or "",
         "url": f"{jira_site()}/browse/{data.get('key') or key}",
         "issueType": ((fields_data.get("issuetype") or {}).get("name") if isinstance(fields_data.get("issuetype"), dict) else None),

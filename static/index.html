@@ -404,7 +404,6 @@
         <p id="settingsSummary" class="hint" style="margin-top:0"></p>
         <div class="row">
           <button id="saveDefaultsBtn">Save current boards as my default</button>
-          <button class="secondary" id="resetDefaultsBtn">Reset to Collab defaults</button>
         </div>
         <div id="settingsStatus" class="status"></div>
       </div>
@@ -537,6 +536,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let lastCompare = null;
+    const COMPARE_CACHE_KEY = "jiraTrelloLastCompare";
     let currentDraft = null;
     let loginTimer = null;
     let jiraBoardList = [];
@@ -860,17 +860,6 @@
         setStatus($("settingsStatus"), err.message, "err");
       }
     };
-    $("resetDefaultsBtn").onclick = async () => {
-      try {
-        savedDefaults = await api("/api/defaults/reset", { method: "POST" });
-        await loadSavedDefaults();
-        await loadBoards();
-        setStatus($("settingsStatus"), "Reset to the bundled Collab board defaults.", "ok");
-      } catch (err) {
-        setStatus($("settingsStatus"), err.message, "err");
-      }
-    };
-
     $("updateBtn").onclick = async () => {
       setStatus($("authStatus"), "Checking GitHub…");
       try {
@@ -1205,22 +1194,65 @@
       }
     }
 
+    function compareCacheKey() {
+      return [
+        $("jiraBoard").value,
+        $("projectFilter").value,
+        $("trelloBoard").value,
+        $("scopeFilter").value,
+      ].join("|");
+    }
+
+    function showCompareResult(data) {
+      lastCompare = data;
+      const roadmapOnly = data.roadmapOnly !== false;
+      $("counts").classList.remove("hidden");
+      $("cTotal").textContent = (data.counts || {}).total || 0;
+      $("cTotalLabel").textContent = roadmapOnly ? "On roadmap" : "Jira items";
+      $("cMissing").textContent = (data.counts || {}).missing || 0;
+      $("cNotDelivered").textContent = (data.counts || {}).notDelivered || 0;
+      $("cMismatch").textContent = (data.counts || {}).mismatch || 0;
+      $("cMatched").textContent = (data.counts || {}).matched || 0;
+      $("cIgnored").textContent = (data.counts || {}).ignored || 0;
+      renderTable();
+    }
+
+    function saveCompareCache() {
+      if (!lastCompare) return;
+      try {
+        localStorage.setItem(COMPARE_CACHE_KEY, JSON.stringify({
+          key: compareCacheKey(),
+          compare: lastCompare,
+          savedAt: Date.now(),
+        }));
+      } catch (_) {}
+    }
+
+    function restoreCompareCache() {
+      try {
+        const cached = JSON.parse(localStorage.getItem(COMPARE_CACHE_KEY) || "null");
+        if (!cached || !cached.compare || cached.key !== compareCacheKey()) return false;
+        showCompareResult(cached.compare);
+        const jiraName = (cached.compare.jira || {}).name || "Jira";
+        const trelloName = (cached.compare.trello || {}).name || "Trello";
+        setStatus($("compareStatus"), `${jiraName} ↔ ${trelloName}`, "ok");
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     $("compareBtn").onclick = async () => {
-      setStatus($("compareStatus"), "Loading Jira and Trello…");
+      const hadRows = Boolean(lastCompare);
+      if (!hadRows) setStatus($("compareStatus"), "Loading Jira and Trello…");
+      else setStatus($("compareStatus"), "Refreshing Jira and Trello…");
       try {
         const project = $("projectFilter").value;
         const roadmapOnly = $("scopeFilter").value !== "all";
-        lastCompare = await api(`/api/compare?project=${encodeURIComponent(project)}&roadmapOnly=${roadmapOnly}`);
-        $("counts").classList.remove("hidden");
-        $("cTotal").textContent = lastCompare.counts.total;
-        $("cTotalLabel").textContent = roadmapOnly ? "On roadmap" : "Jira items";
-        $("cMissing").textContent = lastCompare.counts.missing;
-        $("cNotDelivered").textContent = lastCompare.counts.notDelivered || 0;
-        $("cMismatch").textContent = lastCompare.counts.mismatch;
-        $("cMatched").textContent = lastCompare.counts.matched;
-        $("cIgnored").textContent = lastCompare.counts.ignored || 0;
+        const data = await api(`/api/compare?project=${encodeURIComponent(project)}&roadmapOnly=${roadmapOnly}`);
+        showCompareResult(data);
+        saveCompareCache();
         setStatus($("compareStatus"), `${lastCompare.jira.name} ↔ ${lastCompare.trello.name}`, "ok");
-        renderTable();
       } catch (err) {
         setStatus($("compareStatus"), err.message, "err");
       }
@@ -1543,7 +1575,7 @@
           $("draftStatus"),
           editing
             ? "Loaded from Trello. Tick Delivered, tweak fields, and optionally comment @ksniquer, then save."
-            : "Tweak anything, then create. Labels and custom fields start from your usual Collab defaults."
+            : "Tweak anything, then create. Product Architecture comes from the Jira issue. Other labels and fields remember what you last created on this Mac."
         );
       } catch (err) {
         setStatus($("draftStatus"), err.message, "err");
@@ -1593,15 +1625,19 @@
     $("createBtn").onclick = async () => {
       if (!currentDraft) return;
       const idLabels = [...$("draftLabels").querySelectorAll("input:checked")].map((el) => el.value);
+      const labelNames = [...$("draftLabels").querySelectorAll("input:checked")].map((el) => (el.parentElement ? el.parentElement.textContent : "").trim());
       const customFields = [...$("draftFields").children].map((wrap) => {
         const type = wrap.dataset.fieldType;
         const control = wrap.querySelector("select, input");
+        const listText = type === "list" && control.selectedOptions && control.selectedOptions[0]
+          ? control.selectedOptions[0].textContent
+          : "";
         return {
           id: wrap.dataset.fieldId,
           name: wrap.dataset.fieldName,
           type,
           idValue: type === "list" ? control.value : "",
-          value: type === "checkbox" ? (control.checked ? "true" : "false") : (type === "list" ? "" : control.value),
+          value: type === "checkbox" ? (control.checked ? "true" : "false") : (type === "list" ? listText : control.value),
         };
       });
       const comment = $("draftMention").checked ? $("draftComment").value : "";
@@ -1618,6 +1654,7 @@
             desc: $("draftDesc").value,
             idList: $("draftList").value,
             idLabels,
+            labelNames,
             idMembers: selectedMembers.map((m) => m.id),
             comment,
             customFields,
@@ -1649,7 +1686,13 @@
 
     loadSavedDefaults()
       .then(() => refreshAuth())
-      .then(() => showAppVersion())
+      .then((auth) => {
+        showAppVersion();
+        restoreCompareCache();
+        if (auth && auth.jira && auth.jira.ok && auth.trello && auth.trello.ok) {
+          return $("compareBtn").onclick();
+        }
+      })
       .catch((err) => setStatus($("authStatus"), err.message, "err"));
   </script>
 </body>

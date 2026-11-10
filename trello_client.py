@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from auth import dsc_token, requests_session
+from auth import dsc_token, http
 from config import load_defaults
 
 TRELLO = "https://trello.com"
@@ -26,11 +26,7 @@ def _raise_for_status(resp: Any, action: str) -> None:
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    resp = requests_session("trello").get(
-        f"{TRELLO}{path}",
-        params=_params(params),
-        timeout=45,
-    )
+    resp = http("trello", "GET", f"{TRELLO}{path}", params=_params(params), timeout=45)
     _raise_for_status(resp, path)
     return resp.json()
 
@@ -44,7 +40,9 @@ def _json_body(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _post(path: str, payload: dict[str, Any]) -> Any:
-    resp = requests_session("trello").post(
+    resp = http(
+        "trello",
+        "POST",
         f"{TRELLO}{path}",
         json=_json_body(payload),
         timeout=45,
@@ -60,11 +58,7 @@ def _post(path: str, payload: dict[str, Any]) -> Any:
 
 
 def _delete(path: str) -> Any:
-    resp = requests_session("trello").delete(
-        f"{TRELLO}{path}",
-        params=_params(),
-        timeout=45,
-    )
+    resp = http("trello", "DELETE", f"{TRELLO}{path}", params=_params(), timeout=45)
     _raise_for_status(resp, path)
     if not resp.text:
         return {}
@@ -94,7 +88,9 @@ def _put_custom_field(card_id: str, field: dict[str, Any]) -> None:
 
 
 def _put(path: str, payload: dict[str, Any]) -> Any:
-    resp = requests_session("trello").put(
+    resp = http(
+        "trello",
+        "PUT",
         f"{TRELLO}{path}",
         json=_json_body(payload),
         timeout=45,

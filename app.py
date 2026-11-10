@@ -49,7 +49,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.5", lifespan=lifespan)
+app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.7", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -74,6 +74,7 @@ class CreateRequest(BaseModel):
     desc: str = ""
     idList: str
     idLabels: list[str] = Field(default_factory=list)
+    labelNames: list[str] = Field(default_factory=list)
     idMembers: list[str] = Field(default_factory=list)
     comment: str = ""
     customFields: list[dict[str, Any]] = Field(default_factory=list)
@@ -500,9 +501,32 @@ def _card_payload(payload: CreateRequest, include_unchecked: bool) -> dict[str, 
     }
 
 
+def _remember_create_defaults(payload: CreateRequest) -> None:
+    custom: dict[str, str] = {}
+    for field in payload.customFields or []:
+        name = str(field.get("name") or "").strip()
+        if not name or name in {"Product Architecture", "Delivered"}:
+            continue
+        text = str(field.get("value") or "").strip()
+        if field.get("type") == "list" and text and text != "(leave empty)":
+            custom[name] = text
+        elif field.get("type") == "text" and text:
+            custom[name] = text
+    labels = mapping.shared_label_names(payload.labelNames or [])
+    overlay: dict[str, Any] = {"trello": {}}
+    overlay["trello"]["defaultLabelNames"] = labels or list(mapping.SHARED_LABELS)
+    if custom:
+        overlay["trello"]["defaultCustomFields"] = custom
+    save_user_defaults(overlay)
+
+
 def _create(payload: CreateRequest) -> dict[str, Any]:
     _require_trello()
     card = trello_client.create_card(_card_payload(payload, include_unchecked=False))
+    try:
+        _remember_create_defaults(payload)
+    except Exception:
+        pass
     return {"ok": True, "card": card, "key": payload.key, "mode": "create"}
 
 

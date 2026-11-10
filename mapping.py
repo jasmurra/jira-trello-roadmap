@@ -106,6 +106,74 @@ def pick_list(quarter: str | None, swimlane: str | None, lists: list[dict[str, A
     return names.get("Inbox") or (lists[0] if lists else None)
 
 
+SHARED_LABELS = ("In Jira / Asana", "Pending Roadmap Publish")
+
+# Jira Architecture value → Trello Product Architecture + Prod Arch label
+_ARCH_RULES = (
+    ("contact center", "Collab", "Prod Arch - Collab"),
+    ("collaboration", "Collab", "Prod Arch - Collab"),
+    ("security", "Security", "Prod Arch - Security"),
+    ("enterprise networking", "Enterprise", "Prod Arch - Networking"),
+    ("enterprise", "Enterprise", "Prod Arch - Networking"),
+    ("internet of things", "IOT", "Prod Arch - IoT"),
+    ("iot", "IOT", "Prod Arch - IoT"),
+    ("service provider", "SP", "Prod Arch - SP"),
+    ("data center", "DCV", "Prod Arch - CAI"),
+    ("meraki", "Enterprise", "Prod Arch - Networking"),
+    ("multidomain", "Enterprise", "Prod Arch - Networking"),
+    ("se labs", "Enterprise", "Prod Arch - Networking"),
+)
+
+_KEY_PREFIX_ARCH = {
+    "COL": ("Collab", "Prod Arch - Collab"),
+    "IOT": ("IOT", "Prod Arch - IoT"),
+    "SEC": ("Security", "Prod Arch - Security"),
+    "EN": ("Enterprise", "Prod Arch - Networking"),
+    "SP": ("SP", "Prod Arch - SP"),
+}
+
+
+def _is_prod_arch_label(name: str) -> bool:
+    return str(name or "").strip().lower().startswith("prod arch")
+
+
+def shared_label_names(names: list[str] | None) -> list[str]:
+    out: list[str] = []
+    for name in list(SHARED_LABELS) + list(names or []):
+        text = str(name or "").strip()
+        if not text or _is_prod_arch_label(text) or text in out:
+            continue
+        out.append(text)
+    return out
+
+
+def infer_architecture(issue: dict[str, Any], defaults: dict[str, Any] | None = None) -> tuple[str | None, str | None]:
+    """Return (Trello Product Architecture option, Prod Arch label) or (None, None)."""
+    text = str(issue.get("architecture") or "").strip().lower()
+    for needle, field, label in _ARCH_RULES:
+        if needle in text:
+            return field, label
+    key = str(issue.get("key") or "").upper()
+    prefix = key.split("-", 1)[0] if "-" in key else key
+    if prefix in _KEY_PREFIX_ARCH:
+        return _KEY_PREFIX_ARCH[prefix]
+    jira = (defaults or {}).get("jira") or {}
+    blob = " ".join(
+        [
+            str(jira.get("boardName") or ""),
+            str(jira.get("projectKey") or ""),
+            str(jira.get("quickFilterName") or ""),
+        ]
+    ).lower()
+    if "netsec" in blob or "security" in blob:
+        return "Security", "Prod Arch - Security"
+    if "collab" in blob or blob.split()[:1] == ["col"]:
+        return "Collab", "Prod Arch - Collab"
+    if "iot" in blob:
+        return "IOT", "Prod Arch - IoT"
+    return None, None
+
+
 def _label_ids_by_name(labels: list[dict[str, Any]], names: list[str]) -> list[str]:
     by_name = {(item.get("name") or "").strip().lower(): item["id"] for item in labels if item.get("id")}
     out: list[str] = []
@@ -203,10 +271,15 @@ def draft_from_issue(
     description = build_trello_description(blurb, products, jira_url)
     quarter = quarter_from_name(issue.get("swimlane")) or extra.get("quarter")
     chosen_list = pick_list(quarter, issue.get("swimlane"), board.get("lists") or [])
-    label_ids = _label_ids_by_name(
-        board.get("labels") or [],
-        trello_defaults.get("defaultLabelNames") or [],
-    )
+    arch_value, arch_label = infer_architecture(issue, defaults)
+    label_names = shared_label_names(trello_defaults.get("defaultLabelNames") or [])
+    if arch_label:
+        label_names.append(arch_label)
+    field_defaults = dict(trello_defaults.get("defaultCustomFields") or {})
+    field_defaults.pop("Product Architecture", None)
+    if arch_value:
+        field_defaults["Product Architecture"] = arch_value
+    label_ids = _label_ids_by_name(board.get("labels") or [], label_names)
     return {
         "key": issue.get("key"),
         "jiraUrl": jira_url,
@@ -219,9 +292,10 @@ def draft_from_issue(
         "quarter": quarter,
         "idLabels": label_ids,
         "idMembers": [],
+        "architecture": arch_value,
         "customFields": custom_field_selections(
             board.get("customFields") or [],
-            trello_defaults.get("defaultCustomFields") or {},
+            field_defaults,
         ),
         "comment": trello_defaults.get("commentTemplate") or "",
         "mention": True,

@@ -146,6 +146,46 @@ def requests_session(target: str) -> requests.Session:
     return sess
 
 
+def persist_response_cookies(target: str, resp: Any) -> None:
+    """Keep rotated Jira/Trello cookies so Sign In lasts across restarts."""
+    incoming: list[dict[str, Any]] = []
+    try:
+        jar = getattr(resp, "cookies", None)
+    except Exception:
+        jar = None
+    if jar is None:
+        return
+    for cookie in jar:
+        name = getattr(cookie, "name", None)
+        value = getattr(cookie, "value", None)
+        if not name or value is None:
+            continue
+        incoming.append(
+            {
+                "name": name,
+                "value": str(value),
+                "domain": (getattr(cookie, "domain", None) or "").lstrip("."),
+                "path": getattr(cookie, "path", None) or "/",
+            }
+        )
+    if not incoming:
+        return
+    data = load_session()
+    previous = (data.get(target) or {}).get("cookies") or []
+    block = dict(data.get(target) or {})
+    block["cookies"] = _merge_cookies(previous if isinstance(previous, list) else [], incoming)
+    block["savedAt"] = _now()
+    data[target] = block
+    save_session(data)
+
+
+def http(target: str, method: str, url: str, **kwargs: Any) -> Any:
+    sess = requests_session(target)
+    resp = sess.request(method, url, **kwargs)
+    persist_response_cookies(target, resp)
+    return resp
+
+
 def _browser_probe(context: Any, name: str) -> dict[str, Any]:
     try:
         if name == "jira":
@@ -184,9 +224,9 @@ def _browser_probe(context: Any, name: str) -> dict[str, Any]:
 def probe_jira() -> dict[str, Any]:
     site = jira_site()
     try:
-        resp = requests_session("jira").get(f"{site}/rest/api/3/myself", timeout=20)
-    except requests.RequestException as exc:
-        return {"ok": False, "error": str(exc)}
+        resp = http("jira", "GET", f"{site}/rest/api/3/myself", timeout=20)
+    except requests.RequestException as extra:
+        return {"ok": False, "error": str(extra)}
     if resp.status_code != 200:
         return {"ok": False, "error": f"Jira HTTP {resp.status_code}"}
     try:
@@ -203,7 +243,9 @@ def probe_jira() -> dict[str, Any]:
 
 def probe_trello() -> dict[str, Any]:
     try:
-        resp = requests_session("trello").get(
+        resp = http(
+            "trello",
+            "GET",
             "https://trello.com/1/members/me",
             params={"fields": "fullName,username"},
             timeout=20,
