@@ -49,7 +49,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.3", lifespan=lifespan)
+app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.4", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

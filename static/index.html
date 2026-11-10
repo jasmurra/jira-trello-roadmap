@@ -338,7 +338,7 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Jira → Trello Roadmap Sync <span class="muted" id="appVersion" style="font-size:.8rem;font-weight:500"></span></h1>
+    <h1>Jira → Trello Roadmap Sync <span class="pill" id="appVersion">Version …</span></h1>
     <p class="sub">Compare your Jira board with Trello, then create or edit cards. Default view is <b>Display on Roadmap = Yes</b>. You can also compare every Jira item on the board. Jira Done items are checked for the Trello <b>Delivered</b> field.</p>
     <div class="board-links">
       <a id="jiraBoardLink" href="https://cisco-gde.atlassian.net/jira/software/c/projects/COL/boards/5844?quickFilter=7144" target="_blank" rel="noopener noreferrer">Jira board</a>
@@ -1640,8 +1640,16 @@
       }
     };
 
+    async function showAppVersion() {
+      try {
+        const data = await api("/api/version");
+        if (data.version) $("appVersion").textContent = "Version " + data.version;
+      } catch (_) {}
+    }
+
     loadSavedDefaults()
       .then(() => refreshAuth())
+      .then(() => showAppVersion())
       .catch((err) => setStatus($("authStatus"), err.message, "err"));
   </script>
 </body>
