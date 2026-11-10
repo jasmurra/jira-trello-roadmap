@@ -31,6 +31,29 @@ def issue_keys_in_text(text: str) -> list[str]:
     return found
 
 
+def jira_smart_link(jira_url: str) -> str:
+    url = (jira_url or "").strip()
+    return f'[{url}]({url} "smartCard-inline")'
+
+
+def append_jira_link(desc: str, jira_url: str, key: str) -> str:
+    """Add the Jira URL at the bottom of a Trello description if it is missing."""
+    desc = desc or ""
+    url = (jira_url or "").strip()
+    key = (key or "").strip().upper()
+    if not url:
+        return desc
+    if key and key in issue_keys_in_text(desc):
+        return desc
+    if url.rstrip("/") in desc.replace("\\", ""):
+        return desc
+    link = jira_smart_link(url)
+    body = desc.rstrip()
+    if body:
+        return body + "\n\n" + link + "\n"
+    return link + "\n"
+
+
 def quarter_from_name(name: str | None) -> str | None:
     if not name:
         return None

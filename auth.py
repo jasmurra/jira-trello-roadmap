@@ -68,6 +68,22 @@ def _host_matches_cookie(host: str, domain: str) -> bool:
     return host == domain or host.endswith("." + domain)
 
 
+def _cookie_allowed_for_host(name: str, domain: str, host: str | None) -> bool:
+    if not host:
+        return True
+    if _host_matches_cookie(host, domain):
+        return True
+    # Atlassian often stores the long-lived session on id.atlassian.com only.
+    # Jira Cloud REST on the tenant host still accepts that token.
+    if (
+        name == "cloud.session.token"
+        and host.endswith("atlassian.net")
+        and "atlassian.com" in domain
+    ):
+        return True
+    return False
+
+
 def cookie_header(cookies: list[dict[str, Any]], host: str | None = None) -> str:
     """Build a Cookie header. If host is set, only include cookies for that host.
 
@@ -81,9 +97,12 @@ def cookie_header(cookies: list[dict[str, Any]], host: str | None = None) -> str
         if not name or value is None:
             continue
         domain = (cookie.get("domain") or "").lstrip(".")
-        if host and not _host_matches_cookie(host, domain):
+        if host and not _cookie_allowed_for_host(name, domain, host):
             continue
         score = len(domain)
+        # Prefer a tenant-scoped session cookie over the id.atlassian.com copy.
+        if name == "cloud.session.token" and "atlassian.net" in domain:
+            score += 1000
         prev = chosen.get(name)
         if prev is None or score >= prev[0]:
             chosen[name] = (score, str(value))
@@ -374,16 +393,10 @@ def _cookie_rec(cookie: dict[str, Any]) -> dict[str, Any]:
 def _playwright_cookies(context: Any) -> dict[str, list[dict[str, Any]]]:
     jira: list[dict[str, Any]] = []
     trello: list[dict[str, Any]] = []
-    urls = [
-        f"{jira_site()}/",
-        "https://id.atlassian.com/",
-        "https://auth.atlassian.com/",
-        "https://trello.com/",
-    ]
     try:
-        raw = context.cookies(urls)
-    except Exception:
         raw = context.cookies()
+    except Exception:
+        raw = []
     for cookie in raw:
         rec = _cookie_rec(cookie)
         domain = rec["domain"]
@@ -394,6 +407,32 @@ def _playwright_cookies(context: Any) -> dict[str, list[dict[str, Any]]]:
     return {"jira": jira, "trello": trello}
 
 
+def _merge_cookies(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for cookie in existing + incoming:
+        name = cookie.get("name") or ""
+        if not name or cookie.get("value") is None:
+            continue
+        domain = (cookie.get("domain") or "").lstrip(".")
+        merged[(name, domain)] = {
+            "name": name,
+            "value": cookie.get("value"),
+            "domain": domain,
+            "path": cookie.get("path") or "/",
+        }
+    return list(merged.values())
+
+
+def _has_cloud_session(cookies: list[dict[str, Any]], domain_part: str) -> bool:
+    for cookie in cookies:
+        if cookie.get("name") != "cloud.session.token":
+            continue
+        domain = (cookie.get("domain") or "").lstrip(".")
+        if domain_part in domain:
+            return True
+    return False
+
+
 def _store_from_context(context: Any, targets: tuple[str, ...]) -> None:
     bags = _playwright_cookies(context)
     data = load_session()
@@ -401,8 +440,9 @@ def _store_from_context(context: Any, targets: tuple[str, ...]) -> None:
         cookies = bags.get(target) or []
         if not cookies:
             continue
+        previous = (data.get(target) or {}).get("cookies") or []
         data[target] = {
-            "cookies": cookies,
+            "cookies": _merge_cookies(previous if isinstance(previous, list) else [], cookies),
             "source": "browser",
             "savedAt": _now(),
         }
@@ -482,6 +522,15 @@ def _run_login(target: str) -> None:
                             probe = probe_jira() if name == "jira" else probe_trello()
                         if probe.get("ok"):
                             _store_from_context(context, (name,))
+                            if name == "jira":
+                                extra = time.time() + 20
+                                while time.time() < extra:
+                                    jira_cookies = _playwright_cookies(context).get("jira") or []
+                                    if _has_cloud_session(jira_cookies, "atlassian.net"):
+                                        break
+                                    time.sleep(1)
+                                    _store_from_context(context, (name,))
+                                _store_from_context(context, (name,))
                             who = probe.get("displayName") or probe.get("username") or ""
                             _set_login(f"{name.title()} session saved{(' as ' + who) if who else ''}.")
                             break
@@ -508,6 +557,69 @@ def _run_login(target: str) -> None:
             done=True,
             error=str(exc),
         )
+
+
+def try_refresh_from_profile() -> dict[str, Any]:
+    """Reuse the saved Chrome profile to refresh cookies without a Sign In click.
+
+    Jira's long-lived token often lives on id.atlassian.com. Opening the persistent
+    profile lets remember.me / cloud.session.token mint a tenant cookie again.
+    """
+    with _lock:
+        if _login_state.get("running"):
+            return {"ok": False, "error": "login running"}
+    if not PROFILE_DIR.is_dir():
+        return {"ok": False, "error": "no profile"}
+    jira_ok = bool(probe_jira().get("ok")) if cookies_for("jira") else False
+    trello_ok = bool(probe_trello().get("ok")) if cookies_for("trello") else False
+    if jira_ok and trello_ok:
+        return {"ok": True, "refreshed": False}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "Playwright missing"}
+    steps = []
+    if not jira_ok:
+        steps.extend(_login_urls("jira"))
+    if not trello_ok:
+        steps.extend(_login_urls("trello"))
+    try:
+        with sync_playwright() as playwright:
+            PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            kwargs: dict[str, Any] = {
+                "user_data_dir": str(PROFILE_DIR),
+                "headless": True,
+                "viewport": {"width": 1280, "height": 900},
+                "chromium_sandbox": True,
+                "ignore_default_args": ["--enable-automation", "--enable-automation"],
+                "args": ["--disable-blink-features=AutomationControlled"],
+            }
+            try:
+                context = playwright.chromium.launch_persistent_context(channel="chrome", **kwargs)
+            except Exception:
+                context = playwright.chromium.launch_persistent_context(**kwargs)
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+                for name, url in steps:
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                    _store_from_context(context, (name,))
+            finally:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "refreshed": True,
+        "jira": probe_jira() if cookies_for("jira") else {"ok": False},
+        "trello": probe_trello() if cookies_for("trello") else {"ok": False},
+    }
 
 
 def start_login(target: str) -> dict[str, Any]:

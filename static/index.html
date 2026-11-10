@@ -134,6 +134,86 @@
       z-index: 20;
     }
     .overlay.show { display: flex; }
+    .overlay.center {
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+    }
+    .modal {
+      width: min(760px, 100%);
+      max-height: min(92vh, 920px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.1rem 1.2rem 1.15rem;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 18px 48px rgba(0,0,0,.45);
+    }
+    .filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      max-height: 7.2rem;
+      overflow: auto;
+    }
+    .filter-chip {
+      border: 1px solid var(--border);
+      background: #0b1018;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .filter-chip.on {
+      border-color: var(--accent);
+      background: rgba(4,159,217,.18);
+    }
+    .swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: 0 0 8px;
+    }
+    .link-results {
+      margin-top: 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: auto;
+      min-height: 180px;
+      max-height: 42vh;
+      background: #0b1018;
+    }
+    .link-card {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      padding: 0.65rem 0.8rem;
+      font-weight: 500;
+    }
+    .link-card:hover { background: #152033; }
+    .link-card.selected {
+      background: #152033;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .trello-lab {
+      display: inline-block;
+      border-radius: 3px;
+      padding: 0.04rem 0.38rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      margin: 0.15rem 0.25rem 0 0;
+      color: #0b1018;
+    }
     .drawer {
       width: min(640px, 100%);
       background: var(--panel);
@@ -411,6 +491,44 @@
     </div>
   </div>
 
+  <div class="overlay center" id="linkOverlay">
+    <div class="modal" role="dialog" aria-labelledby="linkTitle">
+      <div class="row">
+        <h2 style="margin:0" id="linkTitle">Link to Trello card</h2>
+        <span class="grow"></span>
+        <button class="secondary" id="closeLink">Close</button>
+      </div>
+      <p class="muted" id="linkMeta"></p>
+      <div class="grid2">
+        <div>
+          <label for="linkSearch">Search</label>
+          <input id="linkSearch" placeholder="Search cards, lists, labels…" autocomplete="off" />
+        </div>
+        <div>
+          <label for="linkList">List</label>
+          <select id="linkList">
+            <option value="">Any list</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:.7rem">
+        <label>Labels</label>
+        <div class="filter-chips" id="linkLabels"></div>
+      </div>
+      <div style="margin-top:.65rem">
+        <label>Members</label>
+        <div class="filter-chips" id="linkMembers"></div>
+      </div>
+      <p class="hint" id="linkCount" style="margin-bottom:0"></p>
+      <div class="link-results" id="linkResults"></div>
+      <div class="row" style="margin-top:1rem">
+        <button id="linkConfirmBtn" disabled>Link this card</button>
+        <span class="grow"></span>
+      </div>
+      <div id="linkStatus" class="status"></div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status">
     <div class="toast-body" id="toastBody"></div>
     <button type="button" class="toast-close" id="toastClose" aria-label="Dismiss">×</button>
@@ -433,6 +551,28 @@
     let commentToken = null;
     let memberHits = [];
     let memberActive = 0;
+    let linkPicker = null;
+    let linkIssue = null;
+    let selectedLinkCardId = null;
+    let linkLabelOn = new Set();
+    let linkMemberOn = new Set();
+    let linkNoLabels = false;
+    let linkNoMembers = false;
+
+    const TRELLO_COLORS = {
+      green: "#61bd4f", yellow: "#f2d600", orange: "#ff9f1a", red: "#eb5a46",
+      purple: "#c377e0", blue: "#0079bf", sky: "#00c2e0", lime: "#51e898",
+      pink: "#ff78cb", black: "#344563", blacklight: "#505f79",
+    };
+
+    function trelloColor(color) {
+      const key = String(color || "").toLowerCase().replace(/[_-]/g, "");
+      if (TRELLO_COLORS[color]) return TRELLO_COLORS[color];
+      for (const name of Object.keys(TRELLO_COLORS)) {
+        if (key.startsWith(name)) return TRELLO_COLORS[name];
+      }
+      return "#6b778c";
+    }
 
     function escapeHtml(value) {
       return String(value || "").replace(/[&<>"']/g, (ch) => ({
@@ -846,6 +986,9 @@
           : (row.gap === "missing"
             ? `<button data-key="${row.key}">Draft card</button>`
             : `<button class="secondary" data-key="${row.key}">Edit card</button>`);
+        const linkBtn = (!row.ignored && row.gap === "missing")
+          ? `<button class="secondary" data-link="${row.key}">Link</button>`
+          : "";
         const reason = row.ignored && row.ignoreReason ? `<div class="muted">${row.ignoreReason}</div>` : "";
         tr.innerHTML = `
           <td><span class="badge ${row.ignored ? "ignored" : row.gap}">${row.ignored ? "Hidden" : gapLabel(row.gap)}</span></td>
@@ -854,11 +997,14 @@
           <td>${row.due || "—"}</td>
           <td>${deliveredCell(row)}</td>
           <td>${trelloCell}</td>
-          <td><div class="row-actions">${draftBtn}${hideBtn}</div></td>`;
+          <td><div class="row-actions">${draftBtn}${linkBtn}${hideBtn}</div></td>`;
         body.appendChild(tr);
       }
       body.querySelectorAll("button[data-key]").forEach((btn) => {
         btn.onclick = () => openDraft(btn.getAttribute("data-key"));
+      });
+      body.querySelectorAll("button[data-link]").forEach((btn) => {
+        btn.onclick = () => openLinkPicker(btn.getAttribute("data-link"));
       });
       body.querySelectorAll("button[data-hide]").forEach((btn) => {
         btn.onclick = () => hideKey(btn.getAttribute("data-hide"));
@@ -892,6 +1038,170 @@
         await $("compareBtn").onclick();
       } catch (err) {
         setStatus($("compareStatus"), err.message, "err");
+      }
+    }
+
+    function closeLinkPicker() {
+      $("linkOverlay").classList.remove("show");
+      selectedLinkCardId = null;
+    }
+
+    function filteredLinkCards() {
+      if (!linkPicker) return [];
+      const query = ($("linkSearch").value || "").trim().toLowerCase();
+      const listId = $("linkList").value;
+      return (linkPicker.cards || []).filter((card) => {
+        if (query && !(card.search || "").includes(query)) return false;
+        if (listId && card.idList !== listId) return false;
+        if (linkNoLabels || linkLabelOn.size) {
+          const labels = card.labels || [];
+          const hasNone = !labels.length;
+          const hasSelected = labels.some((lab) => linkLabelOn.has(lab.id));
+          if (linkNoLabels && linkLabelOn.size) {
+            if (!hasNone && !hasSelected) return false;
+          } else if (linkNoLabels) {
+            if (!hasNone) return false;
+          } else if (!hasSelected) {
+            return false;
+          }
+        }
+        if (linkNoMembers || linkMemberOn.size) {
+          const ids = card.idMembers || [];
+          const hasNone = !ids.length;
+          const hasSelected = ids.some((id) => linkMemberOn.has(id));
+          if (linkNoMembers && linkMemberOn.size) {
+            if (!hasNone && !hasSelected) return false;
+          } else if (linkNoMembers) {
+            if (!hasNone) return false;
+          } else if (!hasSelected) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
+    function renderLinkFilters() {
+      const labels = $("linkLabels");
+      labels.innerHTML = "";
+      const noneLab = document.createElement("button");
+      noneLab.type = "button";
+      noneLab.className = "filter-chip" + (linkNoLabels ? " on" : "");
+      noneLab.textContent = "No labels";
+      noneLab.onclick = () => {
+        linkNoLabels = !linkNoLabels;
+        renderLinkFilters();
+        renderLinkResults();
+      };
+      labels.appendChild(noneLab);
+      for (const lab of linkPicker.labels || []) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "filter-chip" + (linkLabelOn.has(lab.id) ? " on" : "");
+        btn.innerHTML = `<span class="swatch" style="background:${trelloColor(lab.color)}"></span>${escapeHtml(lab.name)}`;
+        btn.onclick = () => {
+          if (linkLabelOn.has(lab.id)) linkLabelOn.delete(lab.id);
+          else linkLabelOn.add(lab.id);
+          renderLinkFilters();
+          renderLinkResults();
+        };
+        labels.appendChild(btn);
+      }
+      const members = $("linkMembers");
+      members.innerHTML = "";
+      const noneMem = document.createElement("button");
+      noneMem.type = "button";
+      noneMem.className = "filter-chip" + (linkNoMembers ? " on" : "");
+      noneMem.textContent = "No members";
+      noneMem.onclick = () => {
+        linkNoMembers = !linkNoMembers;
+        renderLinkFilters();
+        renderLinkResults();
+      };
+      members.appendChild(noneMem);
+      for (const member of linkPicker.members || []) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "filter-chip" + (linkMemberOn.has(member.id) ? " on" : "");
+        const label = member.fullName || member.username || member.id;
+        btn.innerHTML = `${member.initials ? `<span class="avatar" style="width:18px;height:18px;flex-basis:18px;font-size:.55rem">${escapeHtml(member.initials)}</span>` : ""}${escapeHtml(label)}`;
+        btn.onclick = () => {
+          if (linkMemberOn.has(member.id)) linkMemberOn.delete(member.id);
+          else linkMemberOn.add(member.id);
+          renderLinkFilters();
+          renderLinkResults();
+        };
+        members.appendChild(btn);
+      }
+    }
+
+    function renderLinkResults() {
+      const wrap = $("linkResults");
+      wrap.innerHTML = "";
+      const cards = filteredLinkCards();
+      $("linkCount").textContent = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
+      if (!cards.length) {
+        wrap.innerHTML = `<div class="muted" style="padding:.8rem">No cards match those filters.</div>`;
+        $("linkConfirmBtn").disabled = true;
+        return;
+      }
+      for (const card of cards) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "link-card" + (card.id === selectedLinkCardId ? " selected" : "");
+        const labs = (card.labels || [])
+          .filter((lab) => lab.name)
+          .map((lab) => `<span class="trello-lab" style="background:${trelloColor(lab.color)}">${escapeHtml(lab.name)}</span>`)
+          .join("");
+        const people = (card.members || []).map((m) => m.fullName || m.username).filter(Boolean).join(", ");
+        const keys = (card.keys || []).length
+          ? ` · already linked: ${card.keys.map(escapeHtml).join(", ")}`
+          : "";
+        btn.innerHTML = `<div>${escapeHtml(card.name)}</div>
+          <div class="muted">${escapeHtml(card.listName || "No list")}${people ? " · " + escapeHtml(people) : ""}${keys}</div>
+          <div>${labs}</div>`;
+        btn.onclick = () => {
+          selectedLinkCardId = card.id;
+          renderLinkResults();
+        };
+        wrap.appendChild(btn);
+      }
+      $("linkConfirmBtn").disabled = !selectedLinkCardId || !cards.some((card) => card.id === selectedLinkCardId);
+    }
+
+    async function openLinkPicker(key) {
+      const row = (lastCompare && lastCompare.items || []).find((item) => item.key === key) || { key };
+      linkIssue = row;
+      selectedLinkCardId = null;
+      linkLabelOn = new Set();
+      linkMemberOn = new Set();
+      linkNoLabels = false;
+      linkNoMembers = false;
+      $("linkSearch").value = "";
+      $("linkTitle").textContent = `Link ${key} to a Trello card`;
+      $("linkMeta").innerHTML = row.url
+        ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noreferrer">${escapeHtml(key)}</a> · ${escapeHtml(row.summary || "")}`
+        : escapeHtml(key);
+      $("linkOverlay").classList.add("show");
+      $("linkConfirmBtn").disabled = true;
+      $("linkResults").innerHTML = `<div class="muted" style="padding:.8rem">Loading Trello cards…</div>`;
+      setStatus($("linkStatus"), "Loading the Trello board…");
+      try {
+        linkPicker = await api("/api/trello/cards");
+        const listSel = $("linkList");
+        listSel.innerHTML = `<option value="">Any list</option>`;
+        for (const list of linkPicker.lists || []) {
+          const opt = document.createElement("option");
+          opt.value = list.id;
+          opt.textContent = list.name;
+          listSel.appendChild(opt);
+        }
+        renderLinkFilters();
+        renderLinkResults();
+        setStatus($("linkStatus"), "Pick a card, then Link. This adds the Jira URL to the bottom of that card’s description.");
+        $("linkSearch").focus();
+      } catch (err) {
+        setStatus($("linkStatus"), err.message, "err");
       }
     }
 
@@ -1241,10 +1551,44 @@
     }
 
     $("closeDraft").onclick = closeDraft;
+    $("closeLink").onclick = closeLinkPicker;
     $("toastClose").onclick = hideToast;
     $("overlay").addEventListener("click", (ev) => {
       if (ev.target === $("overlay")) closeDraft();
     });
+    $("linkOverlay").addEventListener("click", (ev) => {
+      if (ev.target === $("linkOverlay")) closeLinkPicker();
+    });
+    $("linkSearch").addEventListener("input", renderLinkResults);
+    $("linkList").addEventListener("change", renderLinkResults);
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Escape") return;
+      if ($("linkOverlay").classList.contains("show")) closeLinkPicker();
+      else if ($("overlay").classList.contains("show")) closeDraft();
+    });
+    $("linkConfirmBtn").onclick = async () => {
+      if (!linkIssue || !selectedLinkCardId) return;
+      $("linkConfirmBtn").disabled = true;
+      setStatus($("linkStatus"), "Adding the Jira link to the Trello card…");
+      try {
+        const result = await api("/api/cards/link", {
+          method: "POST",
+          body: JSON.stringify({ key: linkIssue.key, cardId: selectedLinkCardId }),
+        });
+        const already = result.card && result.card.alreadyLinked;
+        closeLinkPicker();
+        showToast(
+          already
+            ? `${escapeHtml(result.key)} was already on <a href="${escapeHtml(result.card.url)}" target="_blank" rel="noreferrer">${escapeHtml(result.card.name)}</a>.`
+            : `Linked ${escapeHtml(result.key)} to <a href="${escapeHtml(result.card.url)}" target="_blank" rel="noreferrer">${escapeHtml(result.card.name)}</a>.`,
+          already ? "warn" : "ok"
+        );
+        await $("compareBtn").onclick();
+      } catch (err) {
+        setStatus($("linkStatus"), err.message, "err");
+        $("linkConfirmBtn").disabled = false;
+      }
+    };
 
     $("createBtn").onclick = async () => {
       if (!currentDraft) return;

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ import trello_client
 from config import (
     PORT,
     ignore_issue,
+    jira_site,
     load_defaults,
     load_ignored,
     reset_user_boards,
@@ -34,7 +36,20 @@ from config import (
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
-app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.2")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    def _run() -> None:
+        try:
+            auth.try_refresh_from_profile()
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Jira → Trello Roadmap Sync", version="1.1.3", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -74,6 +89,11 @@ class IgnoreRequest(BaseModel):
     key: str
     summary: str = ""
     reason: str = ""
+
+
+class LinkRequest(BaseModel):
+    key: str
+    cardId: str
 
 
 def _require_jira() -> None:
@@ -517,6 +537,93 @@ async def create_card(payload: CreateRequest) -> dict[str, Any]:
 async def update_card(payload: UpdateRequest) -> dict[str, Any]:
     try:
         return await run_in_threadpool(_update, payload)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _trello_picker() -> dict[str, Any]:
+    _require_trello()
+    board = trello_client.fetch_board()
+    lists_by_id = {item.get("id"): item.get("name") or "" for item in board.get("lists") or []}
+    members_by_id = {item.get("id"): item for item in board.get("members") or [] if item.get("id")}
+    cards = []
+    for card in board.get("cards") or []:
+        keys = mapping.issue_keys_in_text(f"{card.get('name') or ''}\n{card.get('desc') or ''}")
+        members = [
+            members_by_id[member_id]
+            for member_id in (card.get("idMembers") or [])
+            if member_id in members_by_id
+        ]
+        search = " ".join(
+            [
+                card.get("name") or "",
+                lists_by_id.get(card.get("idList") or "", ""),
+                " ".join(keys),
+                " ".join(lab.get("name") or "" for lab in (card.get("labels") or [])),
+                " ".join(
+                    (item.get("fullName") or "") + " " + (item.get("username") or "")
+                    for item in members
+                ),
+                card.get("desc") or "",
+            ]
+        ).lower()
+        cards.append(
+            {
+                "id": card.get("id"),
+                "name": card.get("name") or "",
+                "url": card.get("url") or card.get("shortUrl"),
+                "idList": card.get("idList"),
+                "listName": lists_by_id.get(card.get("idList") or "", ""),
+                "labels": card.get("labels") or [],
+                "idMembers": card.get("idMembers") or [],
+                "members": members,
+                "keys": keys,
+                "search": search,
+            }
+        )
+    return {
+        "board": {
+            "id": board.get("id"),
+            "name": board.get("name"),
+            "url": board.get("url"),
+        },
+        "lists": board.get("lists") or [],
+        "labels": [lab for lab in (board.get("labels") or []) if lab.get("name")],
+        "members": board.get("members") or [],
+        "cards": cards,
+    }
+
+
+def _link_card(key: str, card_id: str) -> dict[str, Any]:
+    _require_jira()
+    _require_trello()
+    key = key.strip().upper()
+    if not key or not card_id:
+        raise RuntimeError("Jira key and Trello card are required.")
+    detail = jira_client.fetch_issue(key)
+    jira_url = detail.get("url") or f"{jira_site()}/browse/{key}"
+    card = trello_client.link_jira_to_card(card_id, jira_url, key)
+    return {
+        "ok": True,
+        "key": key,
+        "jiraUrl": jira_url,
+        "summary": detail.get("summary") or "",
+        "card": card,
+    }
+
+
+@app.get("/api/trello/cards")
+async def trello_cards() -> dict[str, Any]:
+    try:
+        return await run_in_threadpool(_trello_picker)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/cards/link")
+async def link_card(payload: LinkRequest) -> dict[str, Any]:
+    try:
+        return await run_in_threadpool(_link_card, payload.key.strip().upper(), payload.cardId.strip())
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
 

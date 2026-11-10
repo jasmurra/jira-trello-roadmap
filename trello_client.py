@@ -316,6 +316,35 @@ def create_card(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def get_card(card_id: str) -> dict[str, Any]:
+    return _get(
+        f"/1/cards/{card_id}",
+        params={"fields": "name,desc,url,shortUrl,idList,idMembers,labels,closed"},
+    )
+
+
+def link_jira_to_card(card_id: str, jira_url: str, key: str) -> dict[str, Any]:
+    from mapping import append_jira_link, issue_keys_in_text
+
+    card = get_card(card_id)
+    if card.get("closed"):
+        raise RuntimeError("That Trello card is archived.")
+    desc = card.get("desc") or ""
+    already = bool(key and key.upper() in issue_keys_in_text(desc))
+    new_desc = append_jira_link(desc, jira_url, key)
+    if new_desc != desc:
+        updated = _put(f"/1/cards/{card_id}", {"desc": new_desc})
+        card = {**card, **updated, "desc": new_desc}
+    return {
+        "id": card.get("id") or card_id,
+        "name": card.get("name") or "",
+        "url": card.get("url") or card.get("shortUrl"),
+        "shortUrl": card.get("shortUrl") or card.get("url"),
+        "alreadyLinked": already,
+        "warnings": [],
+    }
+
+
 def update_card(card_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     body: dict[str, Any] = {}
     if payload.get("name"):
