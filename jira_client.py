@@ -22,6 +22,19 @@ def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     return resp.json()
 
 
+def _post(path: str, payload: dict[str, Any]) -> Any:
+    site = jira_site()
+    resp = requests_session("jira").post(f"{site}{path}", json=payload, timeout=60)
+    if resp.status_code in (401, 403):
+        raise RuntimeError("Jira session expired. Sign in again.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira HTTP {resp.status_code}: {resp.text[:300]}")
+    return resp.json()
+
+
+_roadmap_field_id: str | None = None
+
+
 def adf_to_text(node: Any) -> str:
     if node is None:
         return ""
@@ -54,13 +67,83 @@ def _people_name(people: dict[str, Any], account_id: str | None) -> str | None:
     return None
 
 
+def _parse_roadmap_value(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, dict):
+        raw = raw.get("value") or raw.get("text") or raw.get("html") or raw.get("name") or ""
+    return _strip_html(str(raw)).strip()
+
+
+def _roadmap_field_name() -> str:
+    return (load_defaults()["jira"].get("roadmapFieldName") or "Display on Roadmap").strip()
+
+
+def resolve_roadmap_field_id() -> str:
+    global _roadmap_field_id
+    if _roadmap_field_id:
+        return _roadmap_field_id
+    defaults = load_defaults()["jira"]
+    configured = str(defaults.get("roadmapFieldId") or "customfield_10210")
+    wanted = _roadmap_field_name().lower()
+    try:
+        fields = _get("/rest/api/3/field")
+    except Exception:
+        _roadmap_field_id = configured
+        return configured
+    if isinstance(fields, list):
+        for field in fields:
+            if str(field.get("name") or "").strip().lower() == wanted and field.get("id"):
+                _roadmap_field_id = str(field["id"])
+                return _roadmap_field_id
+    _roadmap_field_id = configured
+    return configured
+
+
+def _entry_matches_roadmap(entry: dict[str, Any], field_id: str) -> bool:
+    if (entry.get("id") or "") == field_id:
+        return True
+    label = str(entry.get("label") or entry.get("name") or "").strip().lower()
+    return bool(label) and label == _roadmap_field_name().lower()
+
+
 def _roadmap_value(issue: dict[str, Any], field_id: str) -> str:
     for entry in issue.get("fieldEntries") or []:
-        if entry.get("id") != field_id:
-            continue
-        html = (entry.get("html") or entry.get("text") or "").strip()
-        return html
+        if isinstance(entry, dict) and _entry_matches_roadmap(entry, field_id):
+            return _parse_roadmap_value(entry)
+    for extra in issue.get("cardExtraFields") or []:
+        if isinstance(extra, dict) and _entry_matches_roadmap(extra, field_id):
+            return _parse_roadmap_value(extra)
     return ""
+
+
+def fetch_roadmap_values(keys: list[str], field_id: str | None = None) -> dict[str, str]:
+    """Read Display on Roadmap from the issue, not the board card layout.
+
+    NetSec (and other boards) often omit that extra field on cards, which made
+    every item look like Roadmap = No even when Jira itself is Yes.
+    """
+    field_id = field_id or resolve_roadmap_field_id()
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        item = str(key or "").strip().upper()
+        if item and item not in seen:
+            seen.add(item)
+            wanted.append(item)
+    out: dict[str, str] = {}
+    for start in range(0, len(wanted), 50):
+        chunk = wanted[start : start + 50]
+        data = _post(
+            "/rest/api/3/issue/bulkfetch",
+            {"issueIdsOrKeys": chunk, "fields": [field_id]},
+        )
+        for issue in data.get("issues") or []:
+            key = issue.get("key")
+            if not key:
+                continue
+            out[str(key)] = _parse_roadmap_value((issue.get("fields") or {}).get(field_id))
+    return out
 
 
 def list_boards() -> list[dict[str, Any]]:
@@ -157,7 +240,7 @@ def fetch_board(project_filter: str = "COL") -> dict[str, Any]:
             swimlane_by_issue[int(issue_id)] = lane
 
     issues: list[dict[str, Any]] = []
-    field_id = defaults["roadmapFieldId"]
+    field_id = resolve_roadmap_field_id()
     for column in data.get("columns") or []:
         for issue in column.get("issues") or []:
             if not isinstance(issue, dict) or not issue.get("key"):
@@ -187,6 +270,11 @@ def fetch_board(project_filter: str = "COL") -> dict[str, Any]:
                     "url": f"{jira_site()}/browse/{issue.get('key')}",
                 }
             )
+    if issues:
+        from_issue = fetch_roadmap_values([item["key"] for item in issues], field_id)
+        for item in issues:
+            if item.get("key") in from_issue:
+                item["roadmap"] = from_issue[item["key"]]
     return {
         "id": data.get("id"),
         "name": data.get("name"),
@@ -207,6 +295,7 @@ def fetch_board(project_filter: str = "COL") -> dict[str, Any]:
 
 def fetch_issue(key: str) -> dict[str, Any]:
     defaults = load_defaults()["jira"]
+    roadmap_field = resolve_roadmap_field_id()
     fields = ",".join(
         [
             "summary",
@@ -216,7 +305,7 @@ def fetch_issue(key: str) -> dict[str, Any]:
             "assignee",
             "labels",
             "issuetype",
-            defaults["roadmapFieldId"],
+            roadmap_field,
             defaults.get("productTagsFieldId") or "customfield_13157",
             defaults.get("demoNameFieldId") or "customfield_10060",
         ]
@@ -235,12 +324,7 @@ def fetch_issue(key: str) -> dict[str, Any]:
         products = ", ".join(str(tag) for tag in product_tags if tag)
     else:
         products = str(product_tags or "")
-    roadmap = fields_data.get(defaults["roadmapFieldId"])
-    roadmap_value = ""
-    if isinstance(roadmap, dict):
-        roadmap_value = str(roadmap.get("value") or "")
-    elif roadmap:
-        roadmap_value = str(roadmap)
+    roadmap_value = _parse_roadmap_value(fields_data.get(roadmap_field))
     assignee = fields_data.get("assignee") or {}
     status = fields_data.get("status") or {}
     return {
